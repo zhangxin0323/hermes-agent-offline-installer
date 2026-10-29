@@ -83,6 +83,8 @@ apply_cn_mirrors() {
     set_default_env npm_config_registry "https://registry.npmmirror.com"
     set_default_env ELECTRON_MIRROR "https://npmmirror.com/mirrors/electron/"
     set_default_env PLAYWRIGHT_DOWNLOAD_HOST "https://npmmirror.com/mirrors/playwright"
+    # node-gyp 下载 Node 头文件的备用源（随包头文件缺失时才会用到）
+    set_default_env npm_config_disturl "https://npmmirror.com/mirrors/node"
 
     info "  （已自行设置的同名环境变量不会被覆盖）"
 }
@@ -301,6 +303,25 @@ acquire_source() {
 # ---------------------------------------------------------------------------
 step "步骤0：环境自检"
 command -v sudo >/dev/null 2>&1 || die "需要 sudo 权限写入 $INSTALL_DIR"
+
+if [ "$(id -u)" -eq 0 ]; then
+    warn "正在以 root 身份运行：npm 缓存会写到 /root/.npm，产物文件也归 root。"
+    warn "建议改用普通用户执行（脚本内部已按需调用 sudo）。"
+fi
+
+# node-pty 在 arm64 上没有预编译包，必须用本地工具链编译
+MISSING_TOOLS=""
+for c in make g++ python3; do
+    command -v "$c" >/dev/null 2>&1 || MISSING_TOOLS="$MISSING_TOOLS $c"
+done
+if [ -n "$MISSING_TOOLS" ]; then
+    warn "缺少编译工具:$MISSING_TOOLS"
+    warn "node-pty 等原生模块需要在打包机上现场编译（arm64 没有预编译产物）。"
+    [ "${HERMES_SKIP_TOOLCHECK:-0}" = "1" ] || die "请先安装编译工具后再运行:
+        sudo apt install -y build-essential python3
+      （如确认不需要编译，可用 HERMES_SKIP_TOOLCHECK=1 跳过本检查）"
+fi
+
 for f in "$UV_ARCHIVE" "$NODE_ARCHIVE"; do
     [ -f "$OFFLINE_DIR/$f" ] || die "缺少 $f，请先把它放到 $OFFLINE_DIR"
 done
@@ -451,6 +472,18 @@ cd "$INSTALL_DIR"
 tar xf "$OFFLINE_DIR/$NODE_ARCHIVE" -C .
 rm -rf node
 mv "$NODE_DIR" node
+
+# node-pty 等原生模块在 arm64 上没有预编译包，需要 node-gyp 现场编译。
+# node-gyp 默认去 nodejs.org 下载头文件（国内经常超时），
+# 而随包的 Node 压缩包自带 include/node/*.h 与 common.gypi，直接指向它即可离线编译。
+if [ -f "$INSTALL_DIR/node/include/node/common.gypi" ]; then
+    export npm_config_nodedir="$INSTALL_DIR/node"
+    info "node-gyp 使用随包头文件: $npm_config_nodedir/include/node"
+else
+    warn "随包 Node 缺少 include/node 头文件，原生模块需联网下载头文件"
+    [ "$CN_MIRROR" -eq 1 ] && export npm_config_disturl="https://npmmirror.com/mirrors/node"
+fi
+
 npm install -g npm@latest
 
 step "步骤8：安装 npm 依赖"

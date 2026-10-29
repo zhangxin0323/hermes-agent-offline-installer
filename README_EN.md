@@ -260,7 +260,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | 4 | Create the Python 3.11 venv with uv: `/opt/hermes-agent/hermes-venv` |
 | 5 | Extract the source and **strip the top-level directory** so the repo root is the install root |
 | 6 | `uv pip install -e ".[all,dev]"` plus `playwright` |
-| 7 | Extract Node.js into `node/`, upgrade npm |
+| 7 | Extract Node.js into `node/`, point `npm_config_nodedir` at the bundled headers (offline native builds), then upgrade npm |
 | 8 | Install npm dependencies for the repo root and `apps/desktop` |
 | 9 | Pre-download Electron into `electron-cache/` |
 | 10 | `npm run pack` builds the desktop app (output in `apps/desktop/release/`) |
@@ -344,6 +344,25 @@ terminal:
 
 **Q: `latest` says one version but I want to pin an older one.**
 `HERMES_VERSION=v2026.9.14 ./make-offline-package.sh`, or simply answer `N` to reuse the cached archive.
+
+**Q: Step 8 fails building `node-pty` / `gyp http GET https://nodejs.org/...headers.tar.gz` times out.**
+`node-pty` ships no arm64 prebuild, so node-gyp compiles it locally — and node-gyp downloads Node headers from nodejs.org,
+which is usually unreachable from China. The script now points `npm_config_nodedir` at the headers bundled inside the shipped
+Node (`node/include/node/`), so no network is involved:
+
+```
+node-gyp 使用随包头文件: /opt/hermes-agent/node/include/node
+```
+
+If it still fails, check these two:
+
+```bash
+ls /opt/hermes-agent/node/include/node/common.gypi   # headers present?
+sudo apt install -y build-essential python3          # toolchain: make / g++ / python3
+```
+
+> Also: **do not run the build script with `sudo`** (it calls sudo itself where needed). Running as root puts the npm cache in
+> `/root/.npm` and leaves the output owned by root.
 
 **Q: Step 5 fails with `mv: cannot move ... : Directory not empty`.**
 `/opt/hermes-agent` still holds the previous build's source tree (e.g. an existing `website/`), so merging the new source fails.

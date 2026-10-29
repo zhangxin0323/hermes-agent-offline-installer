@@ -262,7 +262,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | 4 | 用 uv 创建 Python 3.11 venv：`/opt/hermes-agent/hermes-venv` |
 | 5 | 解压源码并**去掉顶层目录**，让仓库内容直接位于安装根目录 |
 | 6 | `uv pip install -e ".[all,dev]"` + `playwright` |
-| 7 | 解压 Node.js 到 `node/`，升级 npm |
+| 7 | 解压 Node.js 到 `node/`，并把 `npm_config_nodedir` 指向随包头文件（离线编译原生模块），再升级 npm |
 | 8 | 安装根目录与 `apps/desktop` 的 npm 依赖 |
 | 9 | 预下载 Electron 到 `electron-cache/` |
 | 10 | `npm run pack` 构建桌面端（产物在 `apps/desktop/release/`） |
@@ -346,6 +346,24 @@ terminal:
 
 **Q：`latest` 提示版本，但我想锁定旧版本怎么办？**
 `HERMES_VERSION=v2026.9.14 ./make-offline-package.sh`；或者直接回答 `N` 复用现有源码包。
+
+**Q：步骤 8 报 `node-pty` 编译失败 / `gyp http GET https://nodejs.org/...headers.tar.gz` 超时。**
+`node-pty` 在 arm64 上没有预编译包，必须用 node-gyp 现场编译，而 node-gyp 默认要从 nodejs.org 下载 Node 头文件，国内基本连不上。
+脚本现在会自动把 `npm_config_nodedir` 指向随包 Node 自带的头文件（`node/include/node/`），完全不需要联网：
+
+```
+node-gyp 使用随包头文件: /opt/hermes-agent/node/include/node
+```
+
+如果仍然报错，检查两点：
+
+```bash
+ls /opt/hermes-agent/node/include/node/common.gypi   # 头文件是否在
+sudo apt install -y build-essential python3          # 编译工具链（make / g++ / python3）
+```
+
+> 另外：**不要用 `sudo` 运行打包脚本**（脚本内部已按需调用 sudo）。用 root 跑会让 npm 缓存落到 `/root/.npm`，
+> 产物文件也全归 root 所有。
 
 **Q：打包时步骤 5 报 `mv: 无法将 ... 移动至 ...：目录非空`。**
 `/opt/hermes-agent` 里还留着上一次构建的源码树（比如 `website/` 已存在），脚本把新源码往旧目录里合并时就会失败。

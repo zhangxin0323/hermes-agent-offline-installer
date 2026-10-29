@@ -527,24 +527,57 @@ step "步骤5：解压源码到根目录（无 src/ 层）"
 extract_source
 
 step "步骤6：安装 Hermes Python 依赖"
-uv pip install -e ".[all,dev]"
-uv pip install playwright
+cd "$INSTALL_DIR"
+
+# 两个必须绕开的坑（都来自 pyproject 的 [tool.uv]）：
+#  1) override-dependencies 只在 sync/lock 路径生效；uv pip 需要显式 --override，
+#     否则 pillow==13.0.0 与 browser-harness 要求的 pillow==12.3.0 直接冲突、解析失败。
+#  2) exclude-newer="3 days" 会过滤掉镜像上没有上传时间的包（如 build 依赖 setuptools），
+#     用 --no-config 关掉项目配置；镜像仍由环境变量（UV_DEFAULT_INDEX 等）提供。
+OVERRIDES_FILE="$(mktemp)"
+"$INSTALL_DIR/hermes-venv/bin/python" - "$INSTALL_DIR/pyproject.toml" > "$OVERRIDES_FILE" <<'PYOVR'
+import sys, tomllib
+with open(sys.argv[1], "rb") as f:
+    data = tomllib.load(f)
+for dep in data.get("tool", {}).get("uv", {}).get("override-dependencies") or []:
+    if ";" in dep:      # 带 platform marker 的条目不能放进 --override 文件
+        continue
+    print(dep)
+PYOVR
+info "从 pyproject 提取 override: $(tr '
+' ' ' < "$OVERRIDES_FILE")"
+
+uv pip install --no-config -e ".[all]" --override "$OVERRIDES_FILE"
+if ! "$INSTALL_DIR/hermes-venv/bin/python" -c "import playwright" >/dev/null 2>&1; then
+    uv pip install --no-config playwright
+fi
+rm -f "$OVERRIDES_FILE"
 
 step "步骤6.5：验证 Python 依赖"
 VENV_PY="$INSTALL_DIR/hermes-venv/bin/python"
-info "venv Python 版本: $("$VENV_PY" -V 2>&1)"
+PY_VER="$("$VENV_PY" -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null || echo "?")"
+info "venv Python 版本: $PY_VER"
+
+# 注意：v0.22.x 用 ruamel.yaml，不再依赖 PyYAML，所以不要检查 yaml 模块
 MISSING_MODS=()
-for m in ruamel.yaml openai rich httpx yaml pydantic; do
+for m in ruamel.yaml openai rich httpx pydantic; do
     "$VENV_PY" -c "import $m" >/dev/null 2>&1 || MISSING_MODS+=("$m")
 done
+
 if [ ${#MISSING_MODS[@]} -gt 0 ]; then
     warn "venv 缺少核心依赖: ${MISSING_MODS[*]}"
-    warn "最常见原因：Python 版本过低。上游 pyproject 把 47 个核心依赖标记为 python_version >= '3.14'，"
-    warn "用 3.11 建 venv 时这些依赖被解析器整体跳过，只装上一批兼容包（httpx2 / mcp 等）。"
-    die "请用 3.14 重建：
+    if [ "$(printf '%s\n3.14\n' "$PY_VER" | sort -V | head -n 1)" != "3.14" ]; then
+        warn "当前 Python $PY_VER 低于 3.14：上游把 47 个核心依赖标记为 python_version >= '3.14'，"
+        warn "低版本会被解析器整体跳过，只装上一批兼容包（httpx2 / mcp 等）。"
+    else
+        warn "Python 版本正确，说明步骤6 的依赖安装不完整（多为网络中断或解析失败），"
+        warn "请检查上面 uv pip install 的输出后重跑。"
+    fi
+    die "已中止，避免打出缺依赖的坏包。可先删除 venv 再重跑：
         rm -rf $INSTALL_DIR/hermes-venv
-        HERMES_PYTHON_VERSION=3.14 ./make-offline-package.sh"
+        ./make-offline-package.sh --cn-mirror"
 fi
+
 "$INSTALL_DIR/hermes-venv/bin/hermes" --version >/dev/null 2>&1 \
     || die "hermes 命令行无法启动，依赖不完整，已中止打包（避免打出坏包）"
 info "✓ Python 依赖完整，hermes 可正常启动"

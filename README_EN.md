@@ -264,7 +264,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | 4 | Create the Python 3.14 venv with uv (`--seed` brings pip; a mismatched existing venv is rebuilt): `/opt/hermes-agent/hermes-venv` |
 | 6.5 | Verify core imports (`ruamel.yaml`/`openai`/`rich`/`httpx`/`yaml`) and `hermes --version`; abort instead of shipping a broken bundle |
 | 5 | Extract the source and **strip the top-level directory** so the repo root is the install root |
-| 6 | `uv pip install -e ".[all,dev]"` plus `playwright` |
+| 6 | Extract `override-dependencies` from `pyproject.toml`, then `uv pip install --no-config -e ".[all]" --override ...`, plus `playwright` (avoids the pillow conflict and the `exclude-newer` filter) |
 | 7 | Extract Node.js into `node/`, point `npm_config_nodedir` at the bundled headers (offline native builds), then upgrade npm |
 | 8 | Install npm dependencies for the repo root and `apps/desktop` |
 | 9 | Pre-download Electron into `electron-cache/`; adds `--no-sandbox` under root, and only warns if the self-check fails while the binary exists |

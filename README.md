@@ -265,7 +265,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | 4 | 用 uv 创建 Python 3.14 venv（`--seed` 自带 pip；已有 venv 版本不符会自动重建）：`/opt/hermes-agent/hermes-venv` |
 | 6.5 | 校验 venv 核心依赖（`ruamel.yaml`/`openai`/`rich`/`httpx`/`yaml`）与 `hermes --version`，不通过则中止，避免打出坏包 |
 | 5 | 解压源码并**去掉顶层目录**，让仓库内容直接位于安装根目录 |
-| 6 | `uv pip install -e ".[all,dev]"` + `playwright` |
+| 6 | 从 `pyproject.toml` 提取 `override-dependencies`，`uv pip install --no-config -e ".[all]" --override ...`，再补 `playwright`（避开 pillow 冲突与 `exclude-newer` 过滤） |
 | 7 | 解压 Node.js 到 `node/`，并把 `npm_config_nodedir` 指向随包头文件（离线编译原生模块），再升级 npm |
 | 8 | 安装根目录与 `apps/desktop` 的 npm 依赖 |
 | 9 | 预下载 Electron 到 `electron-cache/`；root 下自动加 `--no-sandbox`，自检失败仅告警（二进制在即继续） |

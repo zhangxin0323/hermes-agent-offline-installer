@@ -51,3 +51,6 @@ Thumbs.db
 *~
 .idea/
 .vscode/
+
+# 临时验证目录
+/.t/

@@ -93,8 +93,12 @@ cd hermes-agent-offline-installer
 #   uv-aarch64-unknown-linux-gnu.tar.gz
 #   node-v26.2.0-linux-arm64.tar.xz
 
-./make-offline-package.sh
+./make-offline-package.sh --cn-mirror   # 国内网络：PyPI/npm/Electron/Playwright 全走国内镜像
+# ./make-offline-package.sh             # 海外网络：直连官方源
 ```
+
+> **国内打包机务必加 `--cn-mirror`。** 实测同一份 arm64 wheel：走默认的 `files.pythonhosted.org` 只有 **44 KB/s**，
+> 换成阿里云镜像后 **1.4 MB/s**（约 30 倍）。`.[all,dev]` 要拉几百 MB，不加镜像时看起来就像"卡死在 pydantic"。
 
 脚本会依次执行 12 个步骤（详见[第六节](#六脚本做了什么)）。首次运行没有 `latest`，会直接解析上游最新版本并下载源码：
 
@@ -187,9 +191,20 @@ hermes --version              # 查看版本
 ./make-offline-package.sh --redownload         # 强制拉最新版
 ./make-offline-package.sh --yes                # 无人值守（全部回答"是"）
 ./make-offline-package.sh --fetch-only         # 只下载源码，不打包（用来确认版本）
+./make-offline-package.sh --cn-mirror          # 国内源加速（推荐国内打包机使用）
 HERMES_VERSION=v2026.9.14 ./make-offline-package.sh   # 锁死某个发行标签
 HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提交
 ```
+
+`--cn-mirror` 会设置以下变量（**已经自行设置的同名变量不会被覆盖**）：
+
+| 变量 | 值 | 用途 |
+| --- | --- | --- |
+| `UV_DEFAULT_INDEX` / `UV_INDEX_URL` | `https://mirrors.aliyun.com/pypi/simple/` | Python 依赖 |
+| `npm_config_registry` | `https://registry.npmmirror.com` | npm 依赖 |
+| `ELECTRON_MIRROR` | `https://npmmirror.com/mirrors/electron/` | Electron 二进制 |
+| `PLAYWRIGHT_DOWNLOAD_HOST` | `https://npmmirror.com/mirrors/playwright` | Chromium |
+| `UV_HTTP_TIMEOUT` | `120` | 慢网络下放宽 uv 超时 |
 
 | 环境变量 | 默认值 | 作用 |
 | --- | --- | --- |
@@ -200,6 +215,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | `HERMES_INSTALL_DIR` | `/opt/hermes-agent` | 打包时的构建目录 |
 | `HERMES_PYTHON_VERSION` | `3.11` | 创建 venv 时使用的 Python 版本 |
 | `OUTPUT_DIR` | `dist` | 离线包输出目录（已忽略，不入库） |
+| `UV_DEFAULT_INDEX` | 空（`--cn-mirror` 时为阿里云） | PyPI 镜像，也可直接在命令行 export |
 
 ---
 
@@ -232,6 +248,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | 0.5 | **准备源码**：读 `latest` → 决定复用还是重新下载 → 解析最新版本 → 下载并校验 zip |
 | 1 | 创建 `/opt/hermes-agent` 并改属主为当前用户 |
 | 2 | 统一环境变量（`HERMES_AGENT_ROOT`、`UV_NO_CONFIG`、`ELECTRON_CACHE`、`PLAYWRIGHT_BROWSERS_PATH`、`NODE_PATH`），保证内外网路径一致 |
+| 2.5 | 仅在 `--cn-mirror` 时执行：把 PyPI / npm / Electron / Playwright 切到国内镜像 |
 | 3 | 安装 uv 到 `/usr/local/bin` |
 | 4 | 用 uv 创建 Python 3.11 venv：`/opt/hermes-agent/hermes-venv` |
 | 5 | 解压源码并**去掉顶层目录**，让仓库内容直接位于安装根目录 |
@@ -320,6 +337,26 @@ terminal:
 
 **Q：`latest` 提示版本，但我想锁定旧版本怎么办？**
 `HERMES_VERSION=v2026.9.14 ./make-offline-package.sh`；或者直接回答 `N` 复用现有源码包。
+
+**Q：步骤 6 卡在 `Using Python 3.11.x environment` / `pydantic==x.y.z` 很久不动，是下载慢吗？**
+基本可以确定是网络。uv 默认走 `pypi.org`，wheel 实际从 `files.pythonhosted.org` 下载，国内实测只有 40–50 KB/s。
+先加镜像重跑（已下过的包 uv 不会重复下）：
+
+```bash
+./make-offline-package.sh --cn-mirror
+# 或只改本次的 PyPI 源：
+export UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple/
+export UV_HTTP_TIMEOUT=120
+```
+
+判断到底是"慢"还是"卡死"：
+
+```bash
+du -sh ~/.cache/uv          # 隔 30 秒看两次，数字在涨就是慢，不涨才是卡住
+ps aux | grep -E 'uv (pip|sync)'   # 看 uv 进程是否还在
+curl -s -o /dev/null -w '%{speed_download}\n' \
+  https://files.pythonhosted.org/packages/.../pydantic_core-*.whl   # 直接测速
+```
 
 **Q：步骤 9/10 卡在下载 Electron。**
 Electron 走 GitHub Releases，内网打包机若访问不畅，可先设置镜像：`export ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"`，再重跑脚本。

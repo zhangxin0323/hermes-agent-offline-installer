@@ -44,6 +44,7 @@ PYTHON_VERSION="${HERMES_PYTHON_VERSION:-3.11}"
 FORCE_DOWNLOAD=0
 ASSUME_YES=0
 FETCH_ONLY=0
+CN_MIRROR=0
 
 # ---------------------------------------------------------------------------
 # 输出与交互
@@ -53,6 +54,37 @@ info() { printf '%s\n' "$*"; }
 warn() { printf '[警告] %s\n' "$*" >&2; }
 die() { printf '[错误] %s\n' "$*" >&2; exit 1; }
 
+# 只在变量为空时设置，尊重用户已有的环境变量
+set_default_env() {
+    local name="$1" value="$2"
+    if [ -z "${!name:-}" ]; then
+        export "$name=$value"
+        info "  $name=$value"
+    else
+        info "  $name=${!name}（沿用已有设置）"
+    fi
+}
+
+# 国内镜像：PyPI / npm / Electron / Playwright 全部换到国内源
+apply_cn_mirrors() {
+    step "步骤2.5：启用国内镜像"
+
+    # PyPI：UV_DEFAULT_INDEX 是新名字，UV_INDEX_URL 是旧别名，两者给同一个值
+    if [ -n "${UV_DEFAULT_INDEX:-}" ] || [ -n "${UV_INDEX_URL:-}" ]; then
+        info "  PyPI=${UV_DEFAULT_INDEX:-$UV_INDEX_URL}（沿用已有设置）"
+    else
+        export UV_DEFAULT_INDEX="https://mirrors.aliyun.com/pypi/simple/"
+        export UV_INDEX_URL="$UV_DEFAULT_INDEX"
+        info "  PyPI=$UV_DEFAULT_INDEX"
+    fi
+
+    set_default_env npm_config_registry "https://registry.npmmirror.com"
+    set_default_env ELECTRON_MIRROR "https://npmmirror.com/mirrors/electron/"
+    set_default_env PLAYWRIGHT_DOWNLOAD_HOST "https://npmmirror.com/mirrors/playwright"
+
+    info "  （已自行设置的同名环境变量不会被覆盖）"
+}
+
 usage() {
     cat <<'EOF'
 用法: ./make-offline-package.sh [选项]
@@ -61,6 +93,7 @@ usage() {
   -f, --redownload   强制重新下载最新源码（忽略已有的 latest 记录）
   -y, --yes          所有交互询问自动回答“是”
       --fetch-only   只检测/下载源码，不继续打包
+      --cn-mirror    使用国内镜像（PyPI/npm/Electron/Playwright），国内打包机强烈建议
   -h, --help         显示本帮助
 
 环境变量:
@@ -101,6 +134,7 @@ while [ $# -gt 0 ]; do
         -f|--redownload|--force-download) FORCE_DOWNLOAD=1 ;;
         -y|--yes) ASSUME_YES=1 ;;
         --fetch-only) FETCH_ONLY=1 ;;
+        --cn-mirror) CN_MIRROR=1 ;;
         -h|--help) usage ;;
         *) die "未知参数: $1（用 --help 查看用法）" ;;
     esac
@@ -294,6 +328,11 @@ export ELECTRON_CACHE="$INSTALL_DIR/electron-cache"
 export PLAYWRIGHT_BROWSERS_PATH="$INSTALL_DIR/playwright-cache"
 export NODE_PATH="$INSTALL_DIR/node_modules"
 export PATH="$INSTALL_DIR/node/bin:$PATH"
+
+if [ "$CN_MIRROR" -eq 1 ]; then
+    set_default_env UV_HTTP_TIMEOUT "120"
+    apply_cn_mirrors
+fi
 
 step "步骤3：安装 uv"
 cd "$OFFLINE_DIR"

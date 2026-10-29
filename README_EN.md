@@ -92,8 +92,13 @@ cd hermes-agent-offline-installer
 #   uv-aarch64-unknown-linux-gnu.tar.gz
 #   node-v26.2.0-linux-arm64.tar.xz
 
-./make-offline-package.sh
+./make-offline-package.sh --cn-mirror   # in China: route PyPI/npm/Electron/Playwright to CN mirrors
+# ./make-offline-package.sh             # elsewhere: talk to the official registries
 ```
+
+> **Use `--cn-mirror` on build machines in China.** Measured with the same arm64 wheel: the default `files.pythonhosted.org`
+> managed **44 KB/s**, while the Aliyun mirror delivered **1.4 MB/s** (~30×). `.[all,dev]` pulls hundreds of megabytes,
+> so without a mirror the run looks like it is "stuck on pydantic".
 
 The script runs 12 steps (see [section 6](#6-what-the-scripts-do)). On the first run there is no `latest`, so it resolves the newest upstream version and downloads it:
 
@@ -184,9 +189,20 @@ Interactive example:
 ./make-offline-package.sh --redownload         # always fetch the newest version
 ./make-offline-package.sh --yes                # unattended (answer "yes" to everything)
 ./make-offline-package.sh --fetch-only         # only download the source, no build
+./make-offline-package.sh --cn-mirror          # China mirrors (recommended there)
 HERMES_VERSION=v2026.9.14 ./make-offline-package.sh   # pin a specific tag
 HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 ```
+
+`--cn-mirror` sets the following variables (**values you already exported are never overridden**):
+
+| Variable | Value | Used for |
+| --- | --- | --- |
+| `UV_DEFAULT_INDEX` / `UV_INDEX_URL` | `https://mirrors.aliyun.com/pypi/simple/` | Python packages |
+| `npm_config_registry` | `https://registry.npmmirror.com` | npm packages |
+| `ELECTRON_MIRROR` | `https://npmmirror.com/mirrors/electron/` | Electron binaries |
+| `PLAYWRIGHT_DOWNLOAD_HOST` | `https://npmmirror.com/mirrors/playwright` | Chromium |
+| `UV_HTTP_TIMEOUT` | `120` | relaxes uv timeouts on slow links |
 
 | Variable | Default | Effect |
 | --- | --- | --- |
@@ -197,6 +213,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | `HERMES_INSTALL_DIR` | `/opt/hermes-agent` | Build tree during packaging |
 | `HERMES_PYTHON_VERSION` | `3.11` | Python version used for the venv |
 | `OUTPUT_DIR` | `dist` | Where the bundle is written (gitignored) |
+| `UV_DEFAULT_INDEX` | empty (Aliyun with `--cn-mirror`) | PyPI index; may also be exported directly |
 
 ---
 
@@ -229,6 +246,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | 0.5 | **Prepare source**: read `latest` → decide reuse vs. re-download → resolve newest → download and validate the zip |
 | 1 | Create `/opt/hermes-agent`, chown to the current user |
 | 2 | Export a unified environment (`HERMES_AGENT_ROOT`, `UV_NO_CONFIG`, `ELECTRON_CACHE`, `PLAYWRIGHT_BROWSERS_PATH`, `NODE_PATH`) so paths match on both sides |
+| 2.5 | With `--cn-mirror` only: point PyPI / npm / Electron / Playwright at China mirrors |
 | 3 | Install uv into `/usr/local/bin` |
 | 4 | Create the Python 3.11 venv with uv: `/opt/hermes-agent/hermes-venv` |
 | 5 | Extract the source and **strip the top-level directory** so the repo root is the install root |
@@ -317,6 +335,26 @@ terminal:
 
 **Q: `latest` says one version but I want to pin an older one.**
 `HERMES_VERSION=v2026.9.14 ./make-offline-package.sh`, or simply answer `N` to reuse the cached archive.
+
+**Q: Step 6 sits on `Using Python 3.11.x environment` / `pydantic==x.y.z` for ages — is it just slow?**
+Almost certainly network. uv defaults to `pypi.org`, and wheels are served from `files.pythonhosted.org`, which measured
+40–50 KB/s from China. Rerun with mirrors (uv does not re-download what it already cached):
+
+```bash
+./make-offline-package.sh --cn-mirror
+# or override just PyPI for this run:
+export UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple/
+export UV_HTTP_TIMEOUT=120
+```
+
+To tell "slow" from "stuck":
+
+```bash
+du -sh ~/.cache/uv          # sample twice 30s apart: growing = slow, flat = stuck
+ps aux | grep -E 'uv (pip|sync)'   # is uv still running?
+curl -s -o /dev/null -w '%{speed_download}\n' \
+  https://files.pythonhosted.org/packages/.../pydantic_core-*.whl   # raw speed test
+```
 
 **Q: Steps 9/10 hang while downloading Electron.**
 Electron comes from GitHub Releases. If the build machine struggles, set a mirror first: `export ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"`, then rerun.

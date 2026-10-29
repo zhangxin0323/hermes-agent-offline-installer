@@ -139,6 +139,13 @@ bash install-offline-package.sh
 
 看到 `✓ 安装完成！` 即成功。安装脚本只做四件事：补齐系统依赖、解压到 `/opt/hermes-agent`、生成 `/usr/local/bin/hermes` 启动命令、创建桌面快捷方式。
 
+> **重复安装 / 升级**：`/opt/hermes-agent` 非空时脚本会先提示，确认后把旧目录重命名为
+> `/opt/hermes-agent.bak.<时间戳>` 再解压，不会直接覆盖丢文件。无人值守时用 `--force`：
+>
+> ```bash
+> bash install-offline-package.sh --force
+> ```
+
 ### 3.4 启动
 
 ```bash
@@ -192,6 +199,8 @@ hermes --version              # 查看版本
 ./make-offline-package.sh --yes                # 无人值守（全部回答"是"）
 ./make-offline-package.sh --fetch-only         # 只下载源码，不打包（用来确认版本）
 ./make-offline-package.sh --cn-mirror          # 国内源加速（推荐国内打包机使用）
+./make-offline-package.sh --clean              # 构建目录非空时直接清空重建（不询问）
+./make-offline-package.sh --keep               # 复用已装好的 venv，只清理旧源码
 HERMES_VERSION=v2026.9.14 ./make-offline-package.sh   # 锁死某个发行标签
 HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提交
 ```
@@ -246,7 +255,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | --- | --- |
 | 0 | 环境自检（sudo、tar/unzip、随包工具链是否齐全） |
 | 0.5 | **准备源码**：读 `latest` → 决定复用还是重新下载 → 解析最新版本 → 下载并校验 zip |
-| 1 | 创建 `/opt/hermes-agent` 并改属主为当前用户 |
+| 1 | 检查 `/opt/hermes-agent`：不存在则创建；**非空时询问"清空重建 / 保留 venv 只清旧源码"**，避免旧源码与新源码同名冲突 |
 | 2 | 统一环境变量（`HERMES_AGENT_ROOT`、`UV_NO_CONFIG`、`ELECTRON_CACHE`、`PLAYWRIGHT_BROWSERS_PATH`、`NODE_PATH`），保证内外网路径一致 |
 | 2.5 | 仅在 `--cn-mirror` 时执行：把 PyPI / npm / Electron / Playwright 切到国内镜像 |
 | 3 | 安装 uv 到 `/usr/local/bin` |
@@ -265,7 +274,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | 步骤 | 动作 |
 | --- | --- |
 | 1 | `apt install` 图形与运行时依赖（`libnss3`、`libgtk-3-0`、`libgbm1`、`libasound2`、`ripgrep`、`ffmpeg` 等） |
-| 2 | 解压到 `/opt/hermes-agent` 并把属主改为当前用户 |
+| 2 | 检查 `/opt/hermes-agent`：非空时询问，确认后把旧目录重命名为 `/opt/hermes-agent.bak.<时间戳>`，再解压并改属主（不会直接覆盖丢文件） |
 | 3 | 生成 `/usr/local/bin/hermes` 包装脚本（注入 `HERMES_AGENT_ROOT`、`PATH`、`NODE_PATH`、Playwright/Electron 缓存路径，并清理冲突的 `PYTHONPATH`/`PYTHONHOME`） |
 | 4 | 写 `~/.local/share/applications/hermes.desktop` 桌面启动器 |
 | 5 | 执行 `hermes --version` 验证 |
@@ -337,6 +346,15 @@ terminal:
 
 **Q：`latest` 提示版本，但我想锁定旧版本怎么办？**
 `HERMES_VERSION=v2026.9.14 ./make-offline-package.sh`；或者直接回答 `N` 复用现有源码包。
+
+**Q：打包时步骤 5 报 `mv: 无法将 ... 移动至 ...：目录非空`。**
+`/opt/hermes-agent` 里还留着上一次构建的源码树（比如 `website/` 已存在），脚本把新源码往旧目录里合并时就会失败。
+现在脚本会在步骤 1 就检测到并询问；如果你是在旧版本脚本上遇到这个错，直接重跑并指定：
+
+```bash
+./make-offline-package.sh --clean   # 清空构建目录重建
+./make-offline-package.sh --keep    # 或保留 venv，只清理旧源码（更快）
+```
 
 **Q：步骤 6 卡在 `Using Python 3.11.x environment` / `pydantic==x.y.z` 很久不动，是下载慢吗？**
 基本可以确定是网络。uv 默认走 `pypi.org`，wheel 实际从 `files.pythonhosted.org` 下载，国内实测只有 40–50 KB/s。

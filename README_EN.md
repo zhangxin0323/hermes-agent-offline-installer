@@ -139,6 +139,13 @@ bash install-offline-package.sh
 
 Seeing `✓ 安装完成！` means success. The installer only does four things: install missing system libraries, extract to `/opt/hermes-agent`, create `/usr/local/bin/hermes`, and add a desktop launcher.
 
+> **Reinstall / upgrade**: when `/opt/hermes-agent` is not empty the installer asks first, then renames the old tree to
+> `/opt/hermes-agent.bak.<timestamp>` before extracting — nothing is silently overwritten. For unattended runs use `--force`:
+>
+> ```bash
+> bash install-offline-package.sh --force
+> ```
+
 ### 3.4 Launch
 
 ```bash
@@ -190,6 +197,8 @@ Interactive example:
 ./make-offline-package.sh --yes                # unattended (answer "yes" to everything)
 ./make-offline-package.sh --fetch-only         # only download the source, no build
 ./make-offline-package.sh --cn-mirror          # China mirrors (recommended there)
+./make-offline-package.sh --clean              # wipe the build directory without asking
+./make-offline-package.sh --keep               # reuse the existing venv, drop stale source only
 HERMES_VERSION=v2026.9.14 ./make-offline-package.sh   # pin a specific tag
 HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 ```
@@ -263,7 +272,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | Step | Action |
 | --- | --- |
 | 1 | `apt install` graphics/runtime libraries (`libnss3`, `libgtk-3-0`, `libgbm1`, `libasound2`, `ripgrep`, `ffmpeg`, …) |
-| 2 | Extract to `/opt/hermes-agent` and chown to the current user |
+| 2 | Check `/opt/hermes-agent`: when non-empty, ask first and rename the old tree to `/opt/hermes-agent.bak.<timestamp>` before extracting (no silent overwrite) |
 | 3 | Write `/usr/local/bin/hermes` (injects `HERMES_AGENT_ROOT`, `PATH`, `NODE_PATH`, Playwright/Electron cache paths, and clears conflicting `PYTHONPATH`/`PYTHONHOME`) |
 | 4 | Write `~/.local/share/applications/hermes.desktop` |
 | 5 | Verify with `hermes --version` |
@@ -335,6 +344,15 @@ terminal:
 
 **Q: `latest` says one version but I want to pin an older one.**
 `HERMES_VERSION=v2026.9.14 ./make-offline-package.sh`, or simply answer `N` to reuse the cached archive.
+
+**Q: Step 5 fails with `mv: cannot move ... : Directory not empty`.**
+`/opt/hermes-agent` still holds the previous build's source tree (e.g. an existing `website/`), so merging the new source fails.
+Current versions detect this at step 1 and ask; if you hit it on an older copy, rerun with:
+
+```bash
+./make-offline-package.sh --clean   # wipe the build directory and rebuild
+./make-offline-package.sh --keep    # or keep the venv and drop stale source only (faster)
+```
 
 **Q: Step 6 sits on `Using Python 3.11.x environment` / `pydantic==x.y.z` for ages — is it just slow?**
 Almost certainly network. uv defaults to `pypi.org`, and wheels are served from `files.pythonhosted.org`, which measured

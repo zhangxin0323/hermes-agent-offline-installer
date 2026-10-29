@@ -45,6 +45,8 @@ FORCE_DOWNLOAD=0
 ASSUME_YES=0
 FETCH_ONLY=0
 CN_MIRROR=0
+CLEAN_BUILD=0     # --clean：无条件清空构建目录
+KEEP_BUILD=0      # --keep：保留构建目录（仅清理源码残留）
 
 # ---------------------------------------------------------------------------
 # 输出与交互
@@ -94,6 +96,8 @@ usage() {
   -y, --yes          所有交互询问自动回答“是”
       --fetch-only   只检测/下载源码，不继续打包
       --cn-mirror    使用国内镜像（PyPI/npm/Electron/Playwright），国内打包机强烈建议
+      --clean        构建目录非空时无条件清空重建（等价于对询问回答“是”）
+      --keep         保留构建目录（复用已装好的 venv，仅清理旧源码残留）
   -h, --help         显示本帮助
 
 环境变量:
@@ -135,6 +139,8 @@ while [ $# -gt 0 ]; do
         -y|--yes) ASSUME_YES=1 ;;
         --fetch-only) FETCH_ONLY=1 ;;
         --cn-mirror) CN_MIRROR=1 ;;
+        --clean) CLEAN_BUILD=1 ;;
+        --keep) KEEP_BUILD=1 ;;
         -h|--help) usage ;;
         *) die "未知参数: $1（用 --help 查看用法）" ;;
     esac
@@ -314,11 +320,63 @@ if [ "$FETCH_ONLY" -eq 1 ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 构建目录处理：旧源码残留会让 mv 失败（如 website/ 已存在）
+# ---------------------------------------------------------------------------
+dir_nonempty() {
+    [ -d "$1" ] || return 1
+    [ -n "$(ls -A "$1" 2>/dev/null)" ]
+}
+
+# 保留 venv/node 等构建产物，只删旧源码
+clean_stale_source() {
+    local keep=" hermes-venv uv node node_modules electron-cache playwright-cache "
+    local entry base removed=0
+    shopt -s dotglob nullglob
+    for entry in "$INSTALL_DIR"/*; do
+        base="${entry##*/}"
+        case "$keep" in *" $base "*) continue ;; esac
+        rm -rf "$entry" 2>/dev/null || sudo rm -rf "$entry"
+        removed=$((removed + 1))
+    done
+    shopt -u dotglob nullglob
+    info "已清理 $removed 个旧源码条目，保留 hermes-venv / uv / node / node_modules / 缓存目录"
+}
+
+prepare_build_dir() {
+    step "步骤1：创建安装目录"
+    if dir_nonempty "$INSTALL_DIR"; then
+        local count size listing
+        count="$(ls -A "$INSTALL_DIR" | wc -l)"
+        size="$(du -sh "$INSTALL_DIR" 2>/dev/null | awk '{print $1}')"
+        listing="$(ls -A "$INSTALL_DIR" | head -n 8 | tr '\n' ' ')"
+        warn "构建目录已存在且非空: $INSTALL_DIR"
+        info "  顶层条目 $count 个，占用 ${size:-未知}，例如: $listing"
+        info "  上一次构建的源码残留在里面，新源码解压时会与它冲突（如 website/ 已存在导致 mv 失败）。"
+
+        if [ "$CLEAN_BUILD" -eq 1 ]; then
+            info "已指定 --clean：清空整个目录后重建。"
+        elif [ "$KEEP_BUILD" -eq 1 ]; then
+            info "已指定 --keep：保留 venv/node 等构建产物，仅清理旧源码。"
+            clean_stale_source
+            return 0
+        elif ask_yes_no "是否清空 $INSTALL_DIR 整个目录后重新构建？（选 N 则保留 venv，只清理旧源码）"; then
+            info "选择清空：venv 与 npm 依赖也会重建（uv 缓存仍在，速度尚可）。"
+        else
+            info "选择保留：仅清理旧源码，复用已有的 venv / node / node_modules。"
+            clean_stale_source
+            return 0
+        fi
+
+        sudo rm -rf "$INSTALL_DIR"
+    fi
+    sudo mkdir -p "$INSTALL_DIR"
+    sudo chown "$(whoami):$(whoami)" "$INSTALL_DIR"
+}
+
+# ---------------------------------------------------------------------------
 # 开始打包
 # ---------------------------------------------------------------------------
-step "步骤1：创建安装目录"
-sudo mkdir -p "$INSTALL_DIR"
-sudo chown "$(whoami):$(whoami)" "$INSTALL_DIR"
+prepare_build_dir
 
 step "步骤2：统一环境变量（内外网一致）"
 export HERMES_AGENT_ROOT="$INSTALL_DIR"
@@ -346,17 +404,43 @@ uv venv "$INSTALL_DIR/hermes-venv" --python "$PYTHON_VERSION"
 # shellcheck disable=SC1091
 source "$INSTALL_DIR/hermes-venv/bin/activate"
 
+extract_source() {
+    cd "$INSTALL_DIR"
+
+    # 先解压到临时目录，确认无同名冲突后再搬进根目录，
+    # 避免中途失败留下半新半旧的源码树。
+    SRC_TMP="$INSTALL_DIR/.src-extract"
+    rm -rf "$SRC_TMP"
+    mkdir -p "$SRC_TMP"
+    unzip -q "$SRC_ZIP" -d "$SRC_TMP"
+    SRC_TOP="$(find "$SRC_TMP" -maxdepth 1 -mindepth 1 -type d -name 'hermes-agent-*' | head -n 1)"
+    [ -n "$SRC_TOP" ] || die "源码包解压后未找到 hermes-agent-* 目录: $SRC_ZIP"
+
+    # 同名冲突检查（build 产物 hermes-venv/uv/node 等不与源码重名，重名即说明是残留）
+    CONFLICTS=()
+    shopt -s dotglob nullglob
+    for entry in "$SRC_TOP"/*; do
+        base="${entry##*/}"
+        [ -e "$INSTALL_DIR/$base" ] && CONFLICTS+=("$base")
+    done
+    shopt -u dotglob nullglob
+    if [ ${#CONFLICTS[@]} -gt 0 ]; then
+        rm -rf "$SRC_TMP"
+        die "目标目录中已存在同名条目，直接覆盖会丢文件：${CONFLICTS[*]}
+          这些是上一次构建的源码残留。请执行：
+            ./make-offline-package.sh --clean        # 清空 $INSTALL_DIR 重建
+            ./make-offline-package.sh --keep         # 保留 venv，只清理旧源码"
+    fi
+
+    shopt -s dotglob nullglob
+    mv "$SRC_TOP"/* "$INSTALL_DIR"/
+    shopt -u dotglob nullglob
+    rm -rf "$SRC_TMP"
+    [ -f "$INSTALL_DIR/pyproject.toml" ] || die "源码解压异常：$INSTALL_DIR 下缺少 pyproject.toml"
+}
+
 step "步骤5：解压源码到根目录（无 src/ 层）"
-cd "$INSTALL_DIR"
-rm -rf ./hermes-agent-*/
-unzip -q "$SRC_ZIP" -d "$INSTALL_DIR"
-SRC_TOP="$(find "$INSTALL_DIR" -maxdepth 1 -mindepth 1 -type d -name 'hermes-agent-*' | head -n 1)"
-[ -n "$SRC_TOP" ] || die "源码包解压后未找到 hermes-agent-* 目录: $SRC_ZIP"
-shopt -s dotglob
-mv "$SRC_TOP"/* "$INSTALL_DIR"/
-shopt -u dotglob
-rmdir "$SRC_TOP"
-[ -f "$INSTALL_DIR/pyproject.toml" ] || die "源码解压异常：$INSTALL_DIR 下缺少 pyproject.toml"
+extract_source
 
 step "步骤6：安装 Hermes Python 依赖"
 uv pip install -e ".[all,dev]"

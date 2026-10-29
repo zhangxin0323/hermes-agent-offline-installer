@@ -66,7 +66,9 @@ downloaded=2026-10-29T13:35:51+08:00
 - 架构：`aarch64`（与目标机一致，包内的 Node.js / Electron 都是 arm64 版本）。
 - 网络：可访问 GitHub（源码、Electron）、PyPI（Python 依赖）、npm registry。
 - 权限：需要 `sudo`（安装方式沿用原方案，运行时安装在 `/opt/hermes-agent`）。
-- 工具：`curl` 或 `wget`、`tar`、`unzip`、`sha256sum`。
+- 工具：`curl` 或 `wget`、`tar`、`unzip`、`sha256sum`、`make`、`python3`。
+- 编译器：**GCC / G++ ≥ 10**。`node-pty` 在 arm64 上没有预编译包，需用 Node 26 的 `-std=gnu++20` 现场编译；
+  麒麟 V10 默认的 GCC 9 会在步骤 8 报 `unrecognized command line option '-std=gnu++20'`，升级方法见[常见问题](#八常见问题)。
 - 磁盘：建议 ≥ 15 GB 可用空间（`/opt` 构建目录约 4 GB + 输出 `tar.gz` 约 1.7 GB + 源码包）。
 
 ### 目标机（内网）
@@ -253,7 +255,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 
 | 步骤 | 动作 |
 | --- | --- |
-| 0 | 环境自检（sudo、tar/unzip、随包工具链是否齐全） |
+| 0 | 环境自检（sudo、tar/unzip、随包工具链、编译工具，以及 **g++ 主版本是否 ≥ 10**） |
 | 0.5 | **准备源码**：读 `latest` → 决定复用还是重新下载 → 解析最新版本 → 下载并校验 zip |
 | 1 | 检查 `/opt/hermes-agent`：不存在则创建；**非空时询问"清空重建 / 保留 venv 只清旧源码"**，避免旧源码与新源码同名冲突 |
 | 2 | 统一环境变量（`HERMES_AGENT_ROOT`、`UV_NO_CONFIG`、`ELECTRON_CACHE`、`PLAYWRIGHT_BROWSERS_PATH`、`NODE_PATH`），保证内外网路径一致 |
@@ -346,6 +348,19 @@ terminal:
 
 **Q：`latest` 提示版本，但我想锁定旧版本怎么办？**
 `HERMES_VERSION=v2026.9.14 ./make-offline-package.sh`；或者直接回答 `N` 复用现有源码包。
+
+**Q：步骤 8 报 `g++: error: unrecognized command line option '-std=gnu++20'`（编译器太老）。**
+Node 26 的 `common.gypi` 用 C++20，而麒麟 V10 默认 GCC 9 只认 `-std=gnu++2a`。脚本会在步骤 0 就检测到并给出提示，
+按下面四条命令升级默认编译器后重跑即可（源里已有 `gcc-10`，更新的发行版可换成 12）：
+
+```bash
+sudo apt install gcc-10 g++-10
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100
+sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 100
+g++ --version   # 应显示 10.x
+```
+
+> 已经在跑的构建可以先中断：venv 与 npm 缓存都在，重跑时选"保留 venv"即可接着走。
 
 **Q：步骤 8 报 `node-pty` 编译失败 / `gyp http GET https://nodejs.org/...headers.tar.gz` 超时。**
 `node-pty` 在 arm64 上没有预编译包，必须用 node-gyp 现场编译，而 node-gyp 默认要从 nodejs.org 下载 Node 头文件，国内基本连不上。

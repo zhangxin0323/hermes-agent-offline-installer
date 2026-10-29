@@ -65,7 +65,10 @@ downloaded=2026-10-29T13:35:51+08:00
 - Architecture: `aarch64` — matching the target; bundled Node.js and Electron are arm64 builds.
 - Network: access to GitHub (source, Electron), PyPI (Python deps) and the npm registry.
 - Privileges: `sudo` (the install layout follows the original scheme: `/opt/hermes-agent`).
-- Tools: `curl` or `wget`, `tar`, `unzip`, `sha256sum`.
+- Tools: `curl` or `wget`, `tar`, `unzip`, `sha256sum`, `make`, `python3`.
+- Compiler: **GCC / G++ ≥ 10**. `node-pty` has no arm64 prebuild, so it is compiled locally against Node 26's
+  `-std=gnu++20`; Kylin V10 ships GCC 9 and fails in step 8 with `unrecognized command line option '-std=gnu++20'`
+  (upgrade instructions in [Troubleshooting](#8-troubleshooting)).
 - Disk: ≥ 15 GB free (≈4 GB build tree in `/opt`, ≈1.7 GB output tarball, plus the source archive).
 
 ### Target machine (air-gapped)
@@ -251,7 +254,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 
 | Step | Action |
 | --- | --- |
-| 0 | Pre-flight checks (sudo, tar/unzip, bundled toolchain present) |
+| 0 | Pre-flight checks (sudo, tar/unzip, bundled toolchain, build tools, and **g++ major version ≥ 10**) |
 | 0.5 | **Prepare source**: read `latest` → decide reuse vs. re-download → resolve newest → download and validate the zip |
 | 1 | Create `/opt/hermes-agent`, chown to the current user |
 | 2 | Export a unified environment (`HERMES_AGENT_ROOT`, `UV_NO_CONFIG`, `ELECTRON_CACHE`, `PLAYWRIGHT_BROWSERS_PATH`, `NODE_PATH`) so paths match on both sides |
@@ -344,6 +347,19 @@ terminal:
 
 **Q: `latest` says one version but I want to pin an older one.**
 `HERMES_VERSION=v2026.9.14 ./make-offline-package.sh`, or simply answer `N` to reuse the cached archive.
+
+**Q: Step 8 fails with `g++: error: unrecognized command line option '-std=gnu++20'` (compiler too old).**
+Node 26's `common.gypi` requires C++20, while Kylin V10 ships GCC 9 which only knows `-std=gnu++2a`. The script detects this
+at step 0 and prints the fix below; run these four commands and rerun (Kylin's repo has `gcc-10`; newer distros use 12):
+
+```bash
+sudo apt install gcc-10 g++-10
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100
+sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 100
+g++ --version   # expect 10.x
+```
+
+> A build already in progress can be interrupted: the venv and npm cache survive, so rerun and choose "keep the venv".
 
 **Q: Step 8 fails building `node-pty` / `gyp http GET https://nodejs.org/...headers.tar.gz` times out.**
 `node-pty` ships no arm64 prebuild, so node-gyp compiles it locally — and node-gyp downloads Node headers from nodejs.org,

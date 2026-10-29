@@ -56,6 +56,47 @@ info() { printf '%s\n' "$*"; }
 warn() { printf '[警告] %s\n' "$*" >&2; }
 die() { printf '[错误] %s\n' "$*" >&2; exit 1; }
 
+# g++ 版本过低（<10）时 node-pty 编译会因 -std=gnu++20 失败，给出固定处置命令
+print_gxx_hint() {
+    cat >&2 <<'EOF'
+
+[提示] 检测到 C++20 编译失败 / GCC 版本过低
+  Node 26 的 include/node/common.gypi 使用 -std=gnu++20，需要 GCC 10 及以上；
+  麒麟 V10 / Ubuntu 20.04 默认是 GCC 9，只认 -std=gnu++2a，于是在编译 node-pty 时报：
+      g++: error: unrecognized command line option '-std=gnu++20'
+
+  请执行以下命令升级默认编译器，然后重跑本脚本：
+
+      sudo apt install gcc-10 g++-10
+      sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100
+      sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 100
+      g++ --version   # 应显示 10.x
+
+  若发行版源里是更新的版本（如 12），把上面两行里的 10 换成对应版本即可。
+
+EOF
+}
+
+# 执行 npm install，失败时给出针对性诊断（C++20 编译器过老 / 头文件下载超时）
+npm_install() {
+    local log rc
+    log="$INSTALL_DIR/.npm-install.log"
+    set +e
+    npm "$@" 2>&1 | tee "$log"
+    rc=${PIPESTATUS[0]}
+    set -e
+    if [ "$rc" -ne 0 ]; then
+        echo ""
+        if grep -qE "std=gnu\+\+20|unrecognized command line option" "$log" 2>/dev/null; then
+            print_gxx_hint
+        elif grep -qE "headers\.tar\.gz|ETIMEDOUT|ECONNRESET" "$log" 2>/dev/null; then
+            warn "node-gyp 下载 Node 头文件失败。脚本已设置 npm_config_nodedir 指向随包头文件，"
+            warn "若该目录缺失，可加 --cn-mirror 重跑以走 npmmirror 的头文件镜像。"
+        fi
+        die "npm $* 失败（退出码 $rc），日志: $log"
+    fi
+}
+
 # 只在变量为空时设置，尊重用户已有的环境变量
 set_default_env() {
     local name="$1" value="$2"
@@ -322,6 +363,18 @@ if [ -n "$MISSING_TOOLS" ]; then
       （如确认不需要编译，可用 HERMES_SKIP_TOOLCHECK=1 跳过本检查）"
 fi
 
+# node-pty 需要 GCC >= 10（Node 26 的 common.gypi 用 -std=gnu++20）
+GXX_MAJOR="$(g++ -dumpversion 2>/dev/null | cut -d. -f1)"
+if [ -n "${GXX_MAJOR:-}" ] && [ "$GXX_MAJOR" -lt 10 ] 2>/dev/null; then
+    warn "当前 g++ 主版本为 $GXX_MAJOR，低于编译 node-pty 所需的 GCC 10"
+    if [ "${HERMES_ALLOW_OLD_GXX:-0}" = "1" ]; then
+        warn "已设置 HERMES_ALLOW_OLD_GXX=1，继续（步骤8 可能失败）。"
+    else
+        print_gxx_hint
+        ask_yes_no "仍要继续吗？（大概率在步骤8编译 node-pty 时失败）" || die "已中止。按上面的命令升级编译器后重跑。"
+    fi
+fi
+
 for f in "$UV_ARCHIVE" "$NODE_ARCHIVE"; do
     [ -f "$OFFLINE_DIR/$f" ] || die "缺少 $f，请先把它放到 $OFFLINE_DIR"
 done
@@ -460,6 +513,7 @@ extract_source() {
     [ -f "$INSTALL_DIR/pyproject.toml" ] || die "源码解压异常：$INSTALL_DIR 下缺少 pyproject.toml"
 }
 
+
 step "步骤5：解压源码到根目录（无 src/ 层）"
 extract_source
 
@@ -484,12 +538,12 @@ else
     [ "$CN_MIRROR" -eq 1 ] && export npm_config_disturl="https://npmmirror.com/mirrors/node"
 fi
 
-npm install -g npm@latest
+npm_install install -g npm@latest
 
 step "步骤8：安装 npm 依赖"
-npm install
+npm_install install
 cd apps/desktop
-npm install
+npm_install install
 
 step "步骤9：预下载 Electron"
 mkdir -p "$ELECTRON_CACHE"

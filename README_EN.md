@@ -265,7 +265,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | 6 | `uv pip install -e ".[all,dev]"` plus `playwright` |
 | 7 | Extract Node.js into `node/`, point `npm_config_nodedir` at the bundled headers (offline native builds), then upgrade npm |
 | 8 | Install npm dependencies for the repo root and `apps/desktop` |
-| 9 | Pre-download Electron into `electron-cache/` |
+| 9 | Pre-download Electron into `electron-cache/`; adds `--no-sandbox` under root, and only warns if the self-check fails while the binary exists |
 | 10 | `npm run pack` builds the desktop app (output in `apps/desktop/release/`) |
 | 11 | Pre-download Playwright Chromium into `playwright-cache/` |
 | 12 | Copy the installer, then `tar czvf` the tree into `dist/hermes-desktop-arm64-offline.tar.gz` |
@@ -347,6 +347,18 @@ terminal:
 
 **Q: `latest` says one version but I want to pin an older one.**
 `HERMES_VERSION=v2026.9.14 ./make-offline-package.sh`, or simply answer `N` to reuse the cached archive.
+
+**Q: Step 9 fails with `Running as root without --no-sandbox is not supported`.**
+The build script is running as root. It now adds `--no-sandbox` automatically and keeps going as long as the Electron binary
+exists. Running the build as a **regular user** is still preferable (the script sudo's where needed):
+
+```bash
+sudo chown -R "$USER:$USER" /opt/hermes-agent   # fix ownership if it was built as root
+```
+
+**Q: npm prints `Unknown env config "nodedir"` / `"disturl"`.**
+Newer versions write `nodedir` into the build tree's `.npmrc` (removed before packaging), so the warning is gone.
+`disturl` is only set in the fallback path where the bundled Node lacks headers.
 
 **Q: Step 8 fails with `g++: error: unrecognized command line option '-std=gnu++20'` (compiler too old).**
 Node 26's `common.gypi` requires C++20, while Kylin V10 ships GCC 9 which only knows `-std=gnu++2a`. The script detects this

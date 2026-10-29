@@ -124,8 +124,6 @@ apply_cn_mirrors() {
     set_default_env npm_config_registry "https://registry.npmmirror.com"
     set_default_env ELECTRON_MIRROR "https://npmmirror.com/mirrors/electron/"
     set_default_env PLAYWRIGHT_DOWNLOAD_HOST "https://npmmirror.com/mirrors/playwright"
-    # node-gyp 下载 Node 头文件的备用源（随包头文件缺失时才会用到）
-    set_default_env npm_config_disturl "https://npmmirror.com/mirrors/node"
 
     info "  （已自行设置的同名环境变量不会被覆盖）"
 }
@@ -530,9 +528,25 @@ mv "$NODE_DIR" node
 # node-pty 等原生模块在 arm64 上没有预编译包，需要 node-gyp 现场编译。
 # node-gyp 默认去 nodejs.org 下载头文件（国内经常超时），
 # 而随包的 Node 压缩包自带 include/node/*.h 与 common.gypi，直接指向它即可离线编译。
+# 注意：用 .npmrc 而不是 npm_config_nodedir 环境变量，后者会让 npm 报 "Unknown env config"。
+NPMRC_TOUCHED=()
+write_nodedir_npmrc() {
+    local dir file
+    for dir in "$INSTALL_DIR" "$INSTALL_DIR/apps/desktop"; do
+        [ -d "$dir" ] || continue
+        file="$dir/.npmrc"
+        if [ -f "$file" ] && grep -q '^nodedir=' "$file"; then
+            info "已有 nodedir 配置，跳过: $file"
+            continue
+        fi
+        printf 'nodedir=%s\n' "$INSTALL_DIR/node" >> "$file"
+        NPMRC_TOUCHED+=("$file")
+        info "已写入 node-gyp 头文件路径: $file"
+    done
+}
+
 if [ -f "$INSTALL_DIR/node/include/node/common.gypi" ]; then
-    export npm_config_nodedir="$INSTALL_DIR/node"
-    info "node-gyp 使用随包头文件: $npm_config_nodedir/include/node"
+    write_nodedir_npmrc
 else
     warn "随包 Node 缺少 include/node 头文件，原生模块需联网下载头文件"
     [ "$CN_MIRROR" -eq 1 ] && export npm_config_disturl="https://npmmirror.com/mirrors/node"
@@ -547,7 +561,21 @@ npm_install install
 
 step "步骤9：预下载 Electron"
 mkdir -p "$ELECTRON_CACHE"
-npx electron --version
+
+# root 下 Chromium 拒绝启动（除非加 --no-sandbox），这里容错：
+# 只要二进制就位就算预下载成功，版本号打印失败不阻断打包。
+ELECTRON_BIN="$INSTALL_DIR/node_modules/electron/dist/electron"
+ELECTRON_ARGS=(--version)
+[ "$(id -u)" -eq 0 ] && ELECTRON_ARGS=(--no-sandbox --version)
+
+if ! npx electron "${ELECTRON_ARGS[@]}"; then
+    warn "Electron 自检失败（root 沙箱限制或缺图形库都可能导致，属常见情况）"
+    if [ -x "$ELECTRON_BIN" ]; then
+        info "二进制已就位，继续打包: $ELECTRON_BIN"
+    else
+        die "Electron 未下载成功，请检查网络，或设置 ELECTRON_MIRROR 后重跑"
+    fi
+fi
 
 step "步骤10：构建桌面应用"
 cd "$INSTALL_DIR/apps/desktop"
@@ -559,6 +587,15 @@ mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
 "$INSTALL_DIR/hermes-venv/bin/python" -m playwright install chromium
 
 step "步骤12：打包到输出目录"
+
+# 打包前清掉只为本次构建写入的 nodedir 配置，避免随包发给目标机
+for _npmrc in ${NPMRC_TOUCHED[@]+"${NPMRC_TOUCHED[@]}"}; do
+    [ -f "$_npmrc" ] || continue
+    sed -i '/^nodedir=/d' "$_npmrc"
+    [ -s "$_npmrc" ] || rm -f "$_npmrc"
+    info "已清理构建期 npm 配置: $_npmrc"
+done
+
 OUT_DIR="${OUTPUT_DIR:-$OFFLINE_DIR/dist}"
 mkdir -p "$OUT_DIR"
 

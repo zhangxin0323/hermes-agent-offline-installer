@@ -266,7 +266,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | 6 | `uv pip install -e ".[all,dev]"` + `playwright` |
 | 7 | 解压 Node.js 到 `node/`，并把 `npm_config_nodedir` 指向随包头文件（离线编译原生模块），再升级 npm |
 | 8 | 安装根目录与 `apps/desktop` 的 npm 依赖 |
-| 9 | 预下载 Electron 到 `electron-cache/` |
+| 9 | 预下载 Electron 到 `electron-cache/`；root 下自动加 `--no-sandbox`，自检失败仅告警（二进制在即继续） |
 | 10 | `npm run pack` 构建桌面端（产物在 `apps/desktop/release/`） |
 | 11 | 预下载 Playwright Chromium 到 `playwright-cache/` |
 | 12 | 复制安装脚本，并 `tar czvf` 打包 `/opt/hermes-agent` 到 `dist/hermes-desktop-arm64-offline.tar.gz` |
@@ -348,6 +348,18 @@ terminal:
 
 **Q：`latest` 提示版本，但我想锁定旧版本怎么办？**
 `HERMES_VERSION=v2026.9.14 ./make-offline-package.sh`；或者直接回答 `N` 复用现有源码包。
+
+**Q：步骤 9 报 `Running as root without --no-sandbox is not supported`。**
+因为打包脚本是用 root 跑的。脚本已对 root 自动加 `--no-sandbox`，并且即使自检失败、只要 Electron 二进制在位就继续打包。
+更推荐的做法是**用普通用户跑打包脚本**（脚本内部按需 sudo），避免产物全部归 root：
+
+```bash
+sudo chown -R "$USER:$USER" /opt/hermes-agent   # 已经用 root 跑过的，先修正属主
+```
+
+**Q：npm 提示 `Unknown env config "nodedir"` / `"disturl"`。**
+新版本已改为把 `nodedir` 写入构建目录的 `.npmrc`（且打包前自动清理），不再有这条告警。
+`disturl` 只在随包 Node 缺少头文件这种兜底场景才会设置。
 
 **Q：步骤 8 报 `g++: error: unrecognized command line option '-std=gnu++20'`（编译器太老）。**
 Node 26 的 `common.gypi` 用 C++20，而麒麟 V10 默认 GCC 9 只认 `-std=gnu++2a`。脚本会在步骤 0 就检测到并给出提示，

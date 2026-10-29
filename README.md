@@ -214,6 +214,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | `UV_DEFAULT_INDEX` / `UV_INDEX_URL` | `https://mirrors.aliyun.com/pypi/simple/` | Python 依赖 |
 | `npm_config_registry` | `https://registry.npmmirror.com` | npm 依赖 |
 | `ELECTRON_MIRROR` | `https://npmmirror.com/mirrors/electron/` | Electron 二进制 |
+| `ELECTRON_BUILDER_BINARIES_MIRROR` | `https://npmmirror.com/mirrors/electron-builder-binaries/` | electron-builder 打包工具 |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | `https://npmmirror.com/mirrors/playwright` | Chromium |
 | `UV_PYTHON_INSTALL_MIRROR` | `https://registry.npmmirror.com/-/binary/python-build-standalone` | uv 下载 Python 3.14（实测 9s vs 直连 GitHub 38s） |
 | `UV_HTTP_TIMEOUT` | `120` | 慢网络下放宽 uv 超时 |
@@ -388,6 +389,18 @@ rm -rf /opt/hermes-agent/hermes-venv
 **Q：桌面（不是开始菜单）没有 Hermes 图标。**
 旧版安装脚本只写了 `~/.local/share/applications/`（开始菜单）。现在会额外复制一份到 `~/桌面`（兼容 `~/Desktop`），
 `chmod +x` 并用 `gio set ... metadata::trusted true` 标记为可信，避免双击时提示"不受信任的启动器"。
+
+**Q：步骤 10 报 `TypeError: fetch failed`（electron-builder 下载 Electron / 打包工具失败）。
+electron-builder 不走 npm 源，而是自己去 GitHub Releases 下 Electron 和 `electron-builder-binaries`，国内直连会失败。
+`--cn-mirror` 已经包含这两个镜像：
+
+```bash
+export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
+```
+
+所以直接带 `--cn-mirror` 重跑即可。脚本还会把 electron-builder 的缓存放进
+`/opt/hermes-agent/electron-builder-cache`（打包前自动删除），失败时日志留在 `.npm-pack.log`。
 
 **Q：步骤 9 报 `Running as root without --no-sandbox is not supported`。**
 因为打包脚本是用 root 跑的。脚本已对 root 自动加 `--no-sandbox`，并且即使自检失败、只要 Electron 二进制在位就继续打包。

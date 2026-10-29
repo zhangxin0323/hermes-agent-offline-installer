@@ -213,6 +213,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | `UV_DEFAULT_INDEX` / `UV_INDEX_URL` | `https://mirrors.aliyun.com/pypi/simple/` | Python packages |
 | `npm_config_registry` | `https://registry.npmmirror.com` | npm packages |
 | `ELECTRON_MIRROR` | `https://npmmirror.com/mirrors/electron/` | Electron binaries |
+| `ELECTRON_BUILDER_BINARIES_MIRROR` | `https://npmmirror.com/mirrors/electron-builder-binaries/` | electron-builder tooling |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | `https://npmmirror.com/mirrors/playwright` | Chromium |
 | `UV_PYTHON_INSTALL_MIRROR` | `https://registry.npmmirror.com/-/binary/python-build-standalone` | uv's Python 3.14 download (9s vs 38s from GitHub) |
 | `UV_HTTP_TIMEOUT` | `120` | relaxes uv timeouts on slow links |
@@ -387,6 +388,18 @@ rm -rf /opt/hermes-agent/hermes-venv
 **Q: The desktop has no Hermes icon (only the application menu).**
 Older installers only wrote `~/.local/share/applications/`. The installer now also copies the entry to `~/桌面` (or `~/Desktop`),
 marks it executable and trusted (`gio set ... metadata::trusted true`) so double-clicking works.
+
+**Q: Step 10 fails with `TypeError: fetch failed` (electron-builder cannot download Electron / tooling).
+electron-builder bypasses the npm registry and pulls Electron plus `electron-builder-binaries` from GitHub Releases, which is
+unreachable from China. `--cn-mirror` already covers both mirrors:
+
+```bash
+export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
+```
+
+So just rerun with `--cn-mirror`. The builder cache lives in `/opt/hermes-agent/electron-builder-cache`
+(removed before packaging), and the failure log is kept at `.npm-pack.log`.
 
 **Q: Step 9 fails with `Running as root without --no-sandbox is not supported`.**
 The build script is running as root. It now adds `--no-sandbox` automatically and keeps going as long as the Electron binary

@@ -123,6 +123,8 @@ apply_cn_mirrors() {
 
     set_default_env npm_config_registry "https://registry.npmmirror.com"
     set_default_env ELECTRON_MIRROR "https://npmmirror.com/mirrors/electron/"
+    # electron-builder 自己还要下打包工具（GitHub Releases，国内不通）
+    set_default_env ELECTRON_BUILDER_BINARIES_MIRROR "https://npmmirror.com/mirrors/electron-builder-binaries/"
     set_default_env PLAYWRIGHT_DOWNLOAD_HOST "https://npmmirror.com/mirrors/playwright"
     # uv 建 venv 时要从 python-build-standalone 下 Python 3.14（GitHub 源国内很慢）
     set_default_env UV_PYTHON_INSTALL_MIRROR "https://registry.npmmirror.com/-/binary/python-build-standalone"
@@ -458,6 +460,8 @@ export UV_NO_CONFIG=1
 export UV_PYTHON_INSTALL_DIR="$INSTALL_DIR/uv/python"
 export ELECTRON_CACHE="$INSTALL_DIR/electron-cache"
 export PLAYWRIGHT_BROWSERS_PATH="$INSTALL_DIR/playwright-cache"
+# electron-builder 的打包工具缓存（app-builder 等），放构建树里便于统一清理
+export ELECTRON_BUILDER_CACHE="$INSTALL_DIR/electron-builder-cache"
 export NODE_PATH="$INSTALL_DIR/node_modules"
 export PATH="$INSTALL_DIR/node/bin:$PATH"
 
@@ -642,7 +646,23 @@ fi
 
 step "步骤10：构建桌面应用"
 cd "$INSTALL_DIR/apps/desktop"
-npm run pack
+PACK_LOG="$INSTALL_DIR/.npm-pack.log"
+set +e
+npm run pack 2>&1 | tee "$PACK_LOG"
+PACK_RC=${PIPESTATUS[0]}
+set -e
+if [ "$PACK_RC" -ne 0 ]; then
+    echo ""
+    if grep -qE 'fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|socket hang up' "$PACK_LOG" 2>/dev/null; then
+        warn "electron-builder 下载 Electron / 打包工具失败，通常是 GitHub 直连不通。"
+        warn "解决办法（任选其一）："
+        warn "  1) 加 --cn-mirror 重跑本脚本；"
+        warn "  2) 或先手动导出镜像变量再重跑："
+        warn "     export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/"
+        warn "     export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/"
+    fi
+    die "npm run pack 失败（退出码 $PACK_RC），日志: $PACK_LOG"
+fi
 
 step "步骤11：预下载 Playwright 浏览器"
 cd "$INSTALL_DIR"
@@ -658,6 +678,9 @@ for _npmrc in ${NPMRC_TOUCHED[@]+"${NPMRC_TOUCHED[@]}"}; do
     [ -s "$_npmrc" ] || rm -f "$_npmrc"
     info "已清理构建期 npm 配置: $_npmrc"
 done
+
+# 清掉构建期的 electron-builder 缓存与日志，避免打进离线包
+rm -rf "$INSTALL_DIR/electron-builder-cache" "$INSTALL_DIR/.npm-pack.log" "$INSTALL_DIR/.npm-install.log"
 
 OUT_DIR="${OUTPUT_DIR:-$OFFLINE_DIR/dist}"
 mkdir -p "$OUT_DIR"

@@ -38,7 +38,7 @@ LATEST_FILE="$OFFLINE_DIR/latest"
 UV_ARCHIVE="uv-aarch64-unknown-linux-gnu.tar.gz"
 NODE_ARCHIVE="node-v26.2.0-linux-arm64.tar.xz"
 NODE_DIR="node-v26.2.0-linux-arm64"
-PYTHON_VERSION="${HERMES_PYTHON_VERSION:-3.11}"
+PYTHON_VERSION="${HERMES_PYTHON_VERSION:-3.14}"
 
 # 运行开关
 FORCE_DOWNLOAD=0
@@ -124,6 +124,8 @@ apply_cn_mirrors() {
     set_default_env npm_config_registry "https://registry.npmmirror.com"
     set_default_env ELECTRON_MIRROR "https://npmmirror.com/mirrors/electron/"
     set_default_env PLAYWRIGHT_DOWNLOAD_HOST "https://npmmirror.com/mirrors/playwright"
+    # uv 建 venv 时要从 python-build-standalone 下 Python 3.14（GitHub 源国内很慢）
+    set_default_env UV_PYTHON_INSTALL_MIRROR "https://registry.npmmirror.com/-/binary/python-build-standalone"
 
     info "  （已自行设置的同名环境变量不会被覆盖）"
 }
@@ -472,7 +474,16 @@ sudo cp uv-aarch64-unknown-linux-gnu/uv /usr/local/bin/
 rm -rf uv-aarch64-unknown-linux-gnu
 
 step "步骤4：创建 Python venv"
-uv venv "$INSTALL_DIR/hermes-venv" --python "$PYTHON_VERSION"
+# 上游 pyproject 把 47 个核心依赖标记为 python_version >= '3.14'，
+# 用 3.11 建 venv 会被解析器整体跳过（缺 ruamel/openai/rich 等），因此默认 3.14。
+if [ -x "$INSTALL_DIR/hermes-venv/bin/python" ]; then
+    HAVE_PY="$("$INSTALL_DIR/hermes-venv/bin/python" -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null || echo "?")"
+    if [ "$HAVE_PY" != "$PYTHON_VERSION" ]; then
+        warn "已有 venv 的 Python 版本是 $HAVE_PY，与目标 $PYTHON_VERSION 不一致，重建 venv"
+        rm -rf "$INSTALL_DIR/hermes-venv"
+    fi
+fi
+uv venv "$INSTALL_DIR/hermes-venv" --python "$PYTHON_VERSION" --seed
 # shellcheck disable=SC1091
 source "$INSTALL_DIR/hermes-venv/bin/activate"
 
@@ -518,6 +529,25 @@ extract_source
 step "步骤6：安装 Hermes Python 依赖"
 uv pip install -e ".[all,dev]"
 uv pip install playwright
+
+step "步骤6.5：验证 Python 依赖"
+VENV_PY="$INSTALL_DIR/hermes-venv/bin/python"
+info "venv Python 版本: $("$VENV_PY" -V 2>&1)"
+MISSING_MODS=()
+for m in ruamel.yaml openai rich httpx yaml pydantic; do
+    "$VENV_PY" -c "import $m" >/dev/null 2>&1 || MISSING_MODS+=("$m")
+done
+if [ ${#MISSING_MODS[@]} -gt 0 ]; then
+    warn "venv 缺少核心依赖: ${MISSING_MODS[*]}"
+    warn "最常见原因：Python 版本过低。上游 pyproject 把 47 个核心依赖标记为 python_version >= '3.14'，"
+    warn "用 3.11 建 venv 时这些依赖被解析器整体跳过，只装上一批兼容包（httpx2 / mcp 等）。"
+    die "请用 3.14 重建：
+        rm -rf $INSTALL_DIR/hermes-venv
+        HERMES_PYTHON_VERSION=3.14 ./make-offline-package.sh"
+fi
+"$INSTALL_DIR/hermes-venv/bin/hermes" --version >/dev/null 2>&1 \
+    || die "hermes 命令行无法启动，依赖不完整，已中止打包（避免打出坏包）"
+info "✓ Python 依赖完整，hermes 可正常启动"
 
 step "步骤7：部署 Node.js"
 cd "$INSTALL_DIR"

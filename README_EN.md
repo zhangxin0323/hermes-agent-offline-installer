@@ -4,7 +4,7 @@ Builds a self-contained, fully offline installer for [Hermes Agent](https://gith
 
 - **One command** — resolves and downloads the newest Hermes Agent source, fetches every dependency, pre-compiles the Electron desktop app, and emits a single `tar.gz`.
 - **`latest` version record** — the source version is no longer hard-coded. The first run resolves upstream's newest version and downloads it; later runs read the `latest` record and **ask whether to download again**, defaulting to reusing the cached archive.
-- **Fully offline on the target** — Node.js, Python 3.11, Electron, and Playwright Chromium are pre-downloaded and shipped inside the bundle; installation never touches the internet.
+- **Fully offline on the target** — Node.js, Python 3.14, Electron, and Playwright Chromium are pre-downloaded and shipped inside the bundle; installation never touches the internet.
 - **Desktop app ready to run** — the packaged Electron app is already compiled, so `hermes desktop` starts without a local build.
 - **Two flavours** — `python-packages` (full Python toolchain, executes locally) and `docker-backend` (runs generated code in a Docker sandbox).
 
@@ -12,7 +12,7 @@ Builds a self-contained, fully offline installer for [Hermes Agent](https://gith
 | --- | --- |
 | Hermes Agent source | Newest upstream (example: `v0.22.5`; verified here with `v2026.9.14` / 0.21.3) |
 | Node.js | v26.2.0 (linux-arm64) |
-| Python | 3.11 (uv-managed, inside `hermes-venv`) |
+| Python | 3.14 (uv-managed, inside `hermes-venv`) |
 | Electron | 40.10.2 (linux-arm64, cached) |
 | Playwright | Chromium 1243 + headless shell + ffmpeg (cached) |
 | uv | Bundled aarch64 standalone binary |
@@ -31,7 +31,7 @@ Builds a self-contained, fully offline installer for [Hermes Agent](https://gith
 | `make-offline-package.sh` | 13 KB | Builder script for the **build machine**: resolve/download source → install deps → build → pack |
 | `hermes-agent-<version>.zip` | 75–100 MB | Upstream source archive (downloaded and cached; not shipped) |
 | `node-v26.2.0-linux-arm64.tar.xz` | 31 MB | Official Node.js prebuilt runtime, extracted into the bundle |
-| `uv-aarch64-unknown-linux-gnu.tar.gz` | 18 MB | Standalone uv binary used to create the Python 3.11 environment |
+| `uv-aarch64-unknown-linux-gnu.tar.gz` | 18 MB | Standalone uv binary used to create the Python 3.14 environment |
 | `python-3.12-slim-bookworm-arm64.tar` | 148 MB | Exported sandbox base image (Docker flavour) |
 | `latest` | 1 KB | Version record: last downloaded ref, source and checksum |
 | `install-offline-package.sh` | 2 KB | Installer for the **target machine**; copied into the output directory during packaging |
@@ -214,6 +214,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | `npm_config_registry` | `https://registry.npmmirror.com` | npm packages |
 | `ELECTRON_MIRROR` | `https://npmmirror.com/mirrors/electron/` | Electron binaries |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | `https://npmmirror.com/mirrors/playwright` | Chromium |
+| `UV_PYTHON_INSTALL_MIRROR` | `https://registry.npmmirror.com/-/binary/python-build-standalone` | uv's Python 3.14 download (9s vs 38s from GitHub) |
 | `UV_HTTP_TIMEOUT` | `120` | relaxes uv timeouts on slow links |
 
 | Variable | Default | Effect |
@@ -223,7 +224,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | `HERMES_USE_HEAD` | `0` | `1` skips releases/tags and takes the branch HEAD |
 | `HERMES_BRANCH` | `main` | Default branch name |
 | `HERMES_INSTALL_DIR` | `/opt/hermes-agent` | Build tree during packaging |
-| `HERMES_PYTHON_VERSION` | `3.11` | Python version used for the venv |
+| `HERMES_PYTHON_VERSION` | `3.14` | Python version for the venv, default 3.14 |
 | `OUTPUT_DIR` | `dist` | Where the bundle is written (gitignored) |
 | `UV_DEFAULT_INDEX` | empty (Aliyun with `--cn-mirror`) | PyPI index; may also be exported directly |
 
@@ -260,7 +261,8 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | 2 | Export a unified environment (`HERMES_AGENT_ROOT`, `UV_NO_CONFIG`, `ELECTRON_CACHE`, `PLAYWRIGHT_BROWSERS_PATH`, `NODE_PATH`) so paths match on both sides |
 | 2.5 | With `--cn-mirror` only: point PyPI / npm / Electron / Playwright at China mirrors |
 | 3 | Install uv into `/usr/local/bin` |
-| 4 | Create the Python 3.11 venv with uv: `/opt/hermes-agent/hermes-venv` |
+| 4 | Create the Python 3.14 venv with uv (`--seed` brings pip; a mismatched existing venv is rebuilt): `/opt/hermes-agent/hermes-venv` |
+| 6.5 | Verify core imports (`ruamel.yaml`/`openai`/`rich`/`httpx`/`yaml`) and `hermes --version`; abort instead of shipping a broken bundle |
 | 5 | Extract the source and **strip the top-level directory** so the repo root is the install root |
 | 6 | `uv pip install -e ".[all,dev]"` plus `playwright` |
 | 7 | Extract Node.js into `node/`, point `npm_config_nodedir` at the bundled headers (offline native builds), then upgrade npm |
@@ -284,7 +286,7 @@ Resulting layout:
 
 ```
 /opt/hermes-agent/
-├── hermes-venv/            # Python 3.11 venv (contains the hermes CLI)
+├── hermes-venv/            # Python 3.14 venv (contains the hermes CLI)
 ├── uv/python/              # uv-managed Python runtime
 ├── node/                   # Node.js v26.2.0
 ├── node_modules/           # workspace npm dependencies
@@ -363,6 +365,29 @@ tar tzf dist/hermes-desktop-arm64-offline.tar.gz | head -30   # list contents
 sudo tar xzvf dist/hermes-desktop-arm64-offline.tar.gz -C /tmp/inspect   # verbose extract
 ```
 
+**Q: The target machine fails at startup with `ModuleNotFoundError: No module named 'ruamel'` (or openai / rich / httpx).
+The venv is only half-populated, and the root cause is **too old a Python**. Upstream v0.22.x gates 47 core dependencies:
+
+```toml
+"ruamel.yaml==0.18.16; python_version >= '3.14'",
+"openai==2.24.0;    python_version >= '3.14'",
+```
+
+With a 3.11 venv the resolver **skips them entirely**, installing only a compatibility set (`httpx2`, `mcp`, …), so modules are
+missing at runtime. Upstream's own comment says `we *only* support 3.14`. Rebuild instead:
+
+```bash
+rm -rf /opt/hermes-agent/hermes-venv
+./make-offline-package.sh --cn-mirror          # uses 3.14 by default; step 6.5 verifies
+```
+
+> Check an existing bundle with `/opt/hermes-agent/hermes-venv/bin/python -V`.
+> The builder now defaults to `HERMES_PYTHON_VERSION=3.14` and rebuilds a mismatched venv automatically.
+
+**Q: The desktop has no Hermes icon (only the application menu).**
+Older installers only wrote `~/.local/share/applications/`. The installer now also copies the entry to `~/桌面` (or `~/Desktop`),
+marks it executable and trusted (`gio set ... metadata::trusted true`) so double-clicking works.
+
 **Q: Step 9 fails with `Running as root without --no-sandbox is not supported`.**
 The build script is running as root. It now adds `--no-sandbox` automatically and keeps going as long as the Electron binary
 exists. Running the build as a **regular user** is still preferable (the script sudo's where needed):
@@ -416,7 +441,7 @@ Current versions detect this at step 1 and ask; if you hit it on an older copy, 
 ./make-offline-package.sh --keep    # or keep the venv and drop stale source only (faster)
 ```
 
-**Q: Step 6 sits on `Using Python 3.11.x environment` / `pydantic==x.y.z` for ages — is it just slow?**
+**Q: Step 6 sits on `Using Python 3.14.x environment` / `pydantic==x.y.z` for ages — is it just slow?**
 Almost certainly network. uv defaults to `pypi.org`, and wheels are served from `files.pythonhosted.org`, which measured
 40–50 KB/s from China. Rerun with mirrors (uv does not re-download what it already cached):
 

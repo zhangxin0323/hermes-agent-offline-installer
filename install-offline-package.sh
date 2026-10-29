@@ -128,9 +128,10 @@ EOF
 sudo sed -i "s#__INSTALL_DIR__#${INSTALL_DIR}#g" /usr/local/bin/hermes
 sudo chmod +x /usr/local/bin/hermes
 
-step "步骤4：创建桌面启动器（可选）"
-mkdir -p ~/.local/share/applications
-cat > ~/.local/share/applications/hermes.desktop << DESKTOP
+step "步骤4：创建桌面启动器"
+APPS_DIR="$HOME/.local/share/applications"
+mkdir -p "$APPS_DIR"
+cat > "$APPS_DIR/hermes.desktop" << DESKTOP
 [Desktop Entry]
 Name=Hermes Agent
 Exec=/usr/local/bin/hermes desktop --skip-build
@@ -139,9 +140,33 @@ Type=Application
 Terminal=false
 Categories=Development;
 DESKTOP
+chmod +x "$APPS_DIR/hermes.desktop"
+
+# 同时放一份到桌面目录（中文"桌面"/英文"Desktop"都兼容），
+# 并标记为可信，否则 GNOME/UKUI 双击会提示"不受信任的启动器"
+DESKTOP_DIR=""
+for d in "$HOME/桌面" "$HOME/Desktop"; do
+    if [ -d "$d" ]; then DESKTOP_DIR="$d"; break; fi
+done
+if [ -n "$DESKTOP_DIR" ]; then
+    cp -f "$APPS_DIR/hermes.desktop" "$DESKTOP_DIR/hermes.desktop"
+    chmod +x "$DESKTOP_DIR/hermes.desktop"
+    if command -v gio >/dev/null 2>&1; then
+        gio set "$DESKTOP_DIR/hermes.desktop" metadata::trusted true 2>/dev/null || true
+    fi
+    info "已创建桌面快捷方式: $DESKTOP_DIR/hermes.desktop"
+else
+    warn "未找到桌面目录（~/桌面 或 ~/Desktop），仅创建了开始菜单项"
+fi
 
 step "步骤5：验证安装"
-hermes --version
+if ! hermes --version; then
+    echo "" >&2
+    warn "启动失败。若报 ModuleNotFoundError（例如 No module named 'ruamel'），说明 venv 依赖不完整："
+    warn "  上游 pyproject 把核心依赖标记为 python_version >= '3.14'，用 3.11 打包会被跳过。"
+    warn "  请用 3.14 重新打包（make-offline-package.sh 已在步骤 6.5 校验），再重新安装。"
+    die "安装验证未通过"
+fi
 
 echo ""
 echo "✓ 安装完成！"

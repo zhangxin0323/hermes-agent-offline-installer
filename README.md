@@ -4,7 +4,7 @@
 
 - **一条命令完成打包**：自动检测并下载 Hermes Agent 最新源码，随后下载全部依赖、预编译桌面端、打包成单个 `tar.gz`。
 - **latest 版本记录**：源码版本不再写死。首次运行自动解析上游最新版本并下载；再次运行时读取 `latest` 记录，**询问是否重新下载**，默认复用已有源码包。
-- **目标机全离线**：Node.js、Python 3.11 环境、Electron、Playwright Chromium 全部预先下载并随包分发，安装过程不访问外网。
+- **目标机全离线**：Node.js、Python 3.14 环境、Electron、Playwright Chromium 全部预先下载并随包分发，安装过程不访问外网。
 - **开箱即用的桌面端**：包内已包含编译好的 Electron 桌面应用，安装后直接 `hermes desktop` 启动，无需现场构建。
 - **两种发行形态**：`python-packages`（Python 依赖齐全，本地执行）与 `docker-backend`（配合 Docker 沙箱，数据隔离），按需选用。
 
@@ -12,7 +12,7 @@
 | --- | --- |
 | Hermes Agent 源码 | 自动解析上游最新版（示例：`v0.22.5`；本文档验证版本 `v2026.9.14` / 0.21.3） |
 | Node.js | v26.2.0（linux-arm64） |
-| Python | 3.11（uv 托管，位于 `hermes-venv`） |
+| Python | 3.14（uv 托管，位于 `hermes-venv`；上游 v0.22.x 起强制要求，见常见问题） |
 | Electron | 40.10.2（linux-arm64，已缓存） |
 | Playwright | Chromium 1243 + headless shell + ffmpeg（已缓存） |
 | uv | 随包的 aarch64 独立二进制 |
@@ -31,7 +31,7 @@
 | `make-offline-package.sh` | 13 KB | **打包机**上执行的打包脚本：解析/下载源码 → 装依赖 → 构建 → 出包 |
 | `hermes-agent-<版本>.zip` | 75–100 MB | 上游源码包（自动下载并缓存，不随包分发） |
 | `node-v26.2.0-linux-arm64.tar.xz` | 31 MB | Node.js 官方预编译运行时，打包时解压进离线包 |
-| `uv-aarch64-unknown-linux-gnu.tar.gz` | 18 MB | uv 独立二进制，用于创建 Python 3.11 环境 |
+| `uv-aarch64-unknown-linux-gnu.tar.gz` | 18 MB | uv 独立二进制，用于创建 Python 3.14 环境 |
 | `python-3.12-slim-bookworm-arm64.tar` | 148 MB | 沙箱基础镜像导出文件（Docker 沙箱方案使用） |
 | `latest` | 1 KB | 版本记录文件，记录上次下载的源码版本、来源与校验值 |
 | `install-offline-package.sh` | 2 KB | **目标机**上执行的安装脚本，打包时自动复制进产物目录 |
@@ -215,6 +215,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | `npm_config_registry` | `https://registry.npmmirror.com` | npm 依赖 |
 | `ELECTRON_MIRROR` | `https://npmmirror.com/mirrors/electron/` | Electron 二进制 |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | `https://npmmirror.com/mirrors/playwright` | Chromium |
+| `UV_PYTHON_INSTALL_MIRROR` | `https://registry.npmmirror.com/-/binary/python-build-standalone` | uv 下载 Python 3.14（实测 9s vs 直连 GitHub 38s） |
 | `UV_HTTP_TIMEOUT` | `120` | 慢网络下放宽 uv 超时 |
 
 | 环境变量 | 默认值 | 作用 |
@@ -224,7 +225,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | `HERMES_USE_HEAD` | `0` | 设为 `1` 时跳过 Release/tag，直接取分支最新提交 |
 | `HERMES_BRANCH` | `main` | 默认分支名 |
 | `HERMES_INSTALL_DIR` | `/opt/hermes-agent` | 打包时的构建目录 |
-| `HERMES_PYTHON_VERSION` | `3.11` | 创建 venv 时使用的 Python 版本 |
+| `HERMES_PYTHON_VERSION` | `3.14` | 创建 venv 的 Python 版本，默认 3.14 |
 | `OUTPUT_DIR` | `dist` | 离线包输出目录（已忽略，不入库） |
 | `UV_DEFAULT_INDEX` | 空（`--cn-mirror` 时为阿里云） | PyPI 镜像，也可直接在命令行 export |
 
@@ -261,7 +262,8 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | 2 | 统一环境变量（`HERMES_AGENT_ROOT`、`UV_NO_CONFIG`、`ELECTRON_CACHE`、`PLAYWRIGHT_BROWSERS_PATH`、`NODE_PATH`），保证内外网路径一致 |
 | 2.5 | 仅在 `--cn-mirror` 时执行：把 PyPI / npm / Electron / Playwright 切到国内镜像 |
 | 3 | 安装 uv 到 `/usr/local/bin` |
-| 4 | 用 uv 创建 Python 3.11 venv：`/opt/hermes-agent/hermes-venv` |
+| 4 | 用 uv 创建 Python 3.14 venv（`--seed` 自带 pip；已有 venv 版本不符会自动重建）：`/opt/hermes-agent/hermes-venv` |
+| 6.5 | 校验 venv 核心依赖（`ruamel.yaml`/`openai`/`rich`/`httpx`/`yaml`）与 `hermes --version`，不通过则中止，避免打出坏包 |
 | 5 | 解压源码并**去掉顶层目录**，让仓库内容直接位于安装根目录 |
 | 6 | `uv pip install -e ".[all,dev]"` + `playwright` |
 | 7 | 解压 Node.js 到 `node/`，并把 `npm_config_nodedir` 指向随包头文件（离线编译原生模块），再升级 npm |
@@ -285,7 +287,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 
 ```
 /opt/hermes-agent/
-├── hermes-venv/            # Python 3.11 虚拟环境（含 hermes 命令）
+├── hermes-venv/            # Python 3.14 虚拟环境（含 hermes 命令）
 ├── uv/python/              # uv 托管的 Python 运行时
 ├── node/                   # Node.js v26.2.0
 ├── node_modules/           # 工作区 npm 依赖
@@ -364,6 +366,29 @@ tar tzf dist/hermes-desktop-arm64-offline.tar.gz | head -30   # 只看包内文�
 sudo tar xzvf dist/hermes-desktop-arm64-offline.tar.gz -C /tmp/查看   # 解压时看文件名
 ```
 
+**Q：目标机启动报 `ModuleNotFoundError: No module named 'ruamel'`（或 openai / rich / httpx）。
+venv 只装上了一半依赖，根因是 **Python 版本太低**。上游 v0.22.x 的 `pyproject.toml` 把 47 个核心依赖写成：
+
+```toml
+"ruamel.yaml==0.18.16; python_version >= '3.14'",
+"openai==2.24.0;    python_version >= '3.14'",
+```
+
+用 3.11 建 venv 时，这些依赖会被解析器**整体跳过**，只装上一批兼容包（`httpx2`、`mcp` 之类），于是运行期缺模块。
+上游注释也写明 `we *only* support 3.14`。正确处理是重新打包：
+
+```bash
+rm -rf /opt/hermes-agent/hermes-venv
+./make-offline-package.sh --cn-mirror          # 默认已用 3.14，步骤 6.5 会自动校验
+```
+
+> 已有旧包的用户可以先确认版本：`/opt/hermes-agent/hermes-venv/bin/python -V`。
+> 打包脚本现在默认 `HERMES_PYTHON_VERSION=3.14`，发现 venv 版本不符会自动删掉重建。
+
+**Q：桌面（不是开始菜单）没有 Hermes 图标。**
+旧版安装脚本只写了 `~/.local/share/applications/`（开始菜单）。现在会额外复制一份到 `~/桌面`（兼容 `~/Desktop`），
+`chmod +x` 并用 `gio set ... metadata::trusted true` 标记为可信，避免双击时提示"不受信任的启动器"。
+
 **Q：步骤 9 报 `Running as root without --no-sandbox is not supported`。**
 因为打包脚本是用 root 跑的。脚本已对 root 自动加 `--no-sandbox`，并且即使自检失败、只要 Electron 二进制在位就继续打包。
 更推荐的做法是**用普通用户跑打包脚本**（脚本内部按需 sudo），避免产物全部归 root：
@@ -416,7 +441,7 @@ sudo apt install -y build-essential python3          # 编译工具链（make / 
 ./make-offline-package.sh --keep    # 或保留 venv，只清理旧源码（更快）
 ```
 
-**Q：步骤 6 卡在 `Using Python 3.11.x environment` / `pydantic==x.y.z` 很久不动，是下载慢吗？**
+**Q：步骤 6 卡在 `Using Python 3.14.x environment` / `pydantic==x.y.z` 很久不动，是下载慢吗？**
 基本可以确定是网络。uv 默认走 `pypi.org`，wheel 实际从 `files.pythonhosted.org` 下载，国内实测只有 40–50 KB/s。
 先加镜像重跑（已下过的包 uv 不会重复下）：
 

@@ -268,7 +268,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | 9 | Pre-download Electron into `electron-cache/`; adds `--no-sandbox` under root, and only warns if the self-check fails while the binary exists |
 | 10 | `npm run pack` builds the desktop app (output in `apps/desktop/release/`) |
 | 11 | Pre-download Playwright Chromium into `playwright-cache/` |
-| 12 | Copy the installer, then `tar czvf` the tree into `dist/hermes-desktop-arm64-offline.tar.gz` |
+| 12 | Copy the installer, then pack the tree into `dist/hermes-desktop-arm64-offline.tar.gz` (percentage via `pv` if installed, otherwise a dot every 20 MB, **no file listing**) |
 
 ### Target machine: `install-offline-package.sh`
 
@@ -347,6 +347,21 @@ terminal:
 
 **Q: `latest` says one version but I want to pin an older one.**
 `HERMES_VERSION=v2026.9.14 ./make-offline-package.sh`, or simply answer `N` to reuse the cached archive.
+
+**Q: Packing/extracting scrolls thousands of file names — how do I see only progress?**
+The scripts no longer use `tar -v` (that flag was the source of the flood):
+
+- With `pv` on the build machine: percentage, rate, elapsed and ETA, e.g.
+  `12.3MiB 0:00:07 [1.7MiB/s] [===>    ] 23%  ETA 0:00:23`;
+- without `pv`: one dot per 20 MB (`...`) — install it for a nicer display: `sudo apt install pv`;
+- on the target, extraction also uses dots instead of a file list.
+
+To inspect the archive manually:
+
+```bash
+tar tzf dist/hermes-desktop-arm64-offline.tar.gz | head -30   # list contents
+sudo tar xzvf dist/hermes-desktop-arm64-offline.tar.gz -C /tmp/inspect   # verbose extract
+```
 
 **Q: Step 9 fails with `Running as root without --no-sandbox is not supported`.**
 The build script is running as root. It now adds `--no-sandbox` automatically and keeps going as long as the Electron binary

@@ -96,7 +96,9 @@ if dir_nonempty "$INSTALL_DIR"; then
 fi
 
 cd /opt
-sudo tar xzvf "$TARBALL"
+info "正在解压（约需几分钟），每 20MB 打一个点："
+sudo tar xzf "$TARBALL" --checkpoint=2000 --checkpoint-action=dot
+echo ""
 sudo chown -R "$(whoami):$(whoami)" "$INSTALL_DIR"
 
 step "步骤3：创建 hermes 启动命令"

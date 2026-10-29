@@ -606,7 +606,24 @@ if [ -f "$OFFLINE_DIR/install-offline-package.sh" ]; then
 fi
 
 cd /opt
-sudo tar czvf "$OUT_DIR/hermes-desktop-arm64-offline.tar.gz" hermes-agent/
+TARBALL_OUT="$OUT_DIR/hermes-desktop-arm64-offline.tar.gz"
+
+# 只显示进度、不喷文件清单：
+#   有 pv → tar 走管道交给 pv，按未压缩字节数算百分比（含速率/耗时/ETA）
+#   没有 pv → tar 自带检查点，每约 20MB 打一个点
+if command -v pv >/dev/null 2>&1; then
+    TOTAL_BYTES="$(sudo du -sb hermes-agent | cut -f1)"
+    info "正在打包（$(numfmt --to=iec "${TOTAL_BYTES:-0}" 2>/dev/null || echo "${TOTAL_BYTES:-0} B")），进度如下："
+    sudo tar cf - hermes-agent \
+        | pv -p -t -e -r -s "${TOTAL_BYTES:-0}" \
+        | gzip -6 > "$TARBALL_OUT"
+else
+    info "正在打包（未安装 pv，改用点状进度；sudo apt install pv 可显示百分比）"
+    sudo tar czf "$TARBALL_OUT" --checkpoint=2000 --checkpoint-action=dot hermes-agent
+    echo ""
+fi
+
+[ -s "$TARBALL_OUT" ] || die "打包失败：$TARBALL_OUT 不存在或为空"
 
 echo ""
 echo "✓ 打包完成: $OUT_DIR/hermes-desktop-arm64-offline.tar.gz"

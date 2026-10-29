@@ -269,7 +269,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | 9 | 预下载 Electron 到 `electron-cache/`；root 下自动加 `--no-sandbox`，自检失败仅告警（二进制在即继续） |
 | 10 | `npm run pack` 构建桌面端（产物在 `apps/desktop/release/`） |
 | 11 | 预下载 Playwright Chromium 到 `playwright-cache/` |
-| 12 | 复制安装脚本，并 `tar czvf` 打包 `/opt/hermes-agent` 到 `dist/hermes-desktop-arm64-offline.tar.gz` |
+| 12 | 复制安装脚本，并打包 `/opt/hermes-agent` 到 `dist/hermes-desktop-arm64-offline.tar.gz`（装了 `pv` 显示百分比进度，否则每 20MB 一个点，**不打印文件清单**） |
 
 ### 目标机：`install-offline-package.sh`
 
@@ -348,6 +348,21 @@ terminal:
 
 **Q：`latest` 提示版本，但我想锁定旧版本怎么办？**
 `HERMES_VERSION=v2026.9.14 ./make-offline-package.sh`；或者直接回答 `N` 复用现有源码包。
+
+**Q：打包/解压时滚屏刷一大堆文件名，怎么只看进度？**
+脚本已经不再用 `tar -v`（`-v` 才是刷清单的元凶）。当前行为：
+
+- 打包机装了 `pv`：显示百分比、速度、耗时、ETA，例如
+  `12.3MiB 0:00:07 [1.7MiB/s] [===>    ] 23%  ETA 0:00:23`；
+- 没装 `pv`：每 20 MB 打一个点（`...`），装一下更直观：`sudo apt install pv`；
+- 目标机解压：同样用点状进度，不列文件名。
+
+如果想临时看清单，手工执行即可：
+
+```bash
+tar tzf dist/hermes-desktop-arm64-offline.tar.gz | head -30   # 只看包内文件
+sudo tar xzvf dist/hermes-desktop-arm64-offline.tar.gz -C /tmp/查看   # 解压时看文件名
+```
 
 **Q：步骤 9 报 `Running as root without --no-sandbox is not supported`。**
 因为打包脚本是用 root 跑的。脚本已对 root 自动加 `--no-sandbox`，并且即使自检失败、只要 Electron 二进制在位就继续打包。

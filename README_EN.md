@@ -34,12 +34,11 @@ Builds a self-contained, fully offline installer for [Hermes Agent](https://gith
 | `uv-aarch64-unknown-linux-gnu.tar.gz` | 18 MB | Standalone uv binary used to create the Python 3.11 environment |
 | `python-3.12-slim-bookworm-arm64.tar` | 148 MB | Exported sandbox base image (Docker flavour) |
 | `latest` | 1 KB | Version record: last downloaded ref, source and checksum |
-| `dists/hermes-desktop-arm64-with-python-packages/` | 1.55 GB | Bundle A: full Python dependencies, local execution |
-| `dists/hermes-desktop-arm64-with-docker-backend/` | 4.3 GB | Bundle B: ships a Docker sandbox image, isolated execution |
-| `install-offline-package.sh` | 2 KB | Installer for the **target machine** (identical in both flavours) |
+| `install-offline-package.sh` | 2 KB | Installer for the **target machine**; copied into the output directory during packaging |
+| `dist/` | 1.5–4 GB | Build output (`tar.gz` + installer), excluded by `.gitignore` |
 | `README.md` / `README_EN.md` | — | Chinese / English documentation |
 
-> **The target machine only needs two files**: `hermes-desktop-arm64-offline.tar.gz` and `install-offline-package.sh`. Everything else stays on the build machine.
+> **The target machine only needs two files**: `hermes-desktop-arm64-offline.tar.gz` and `install-offline-package.sh` — both land in `dist/`. Everything else stays on the build machine.
 
 ### The `latest` file
 
@@ -107,10 +106,12 @@ The script runs 12 steps (see [section 6](#6-what-the-scripts-do)). On the first
 版本记录: /data/hermes-agent-offline/latest
 ```
 
-Output:
+Output goes to `dist/`, and the installer is copied there as well:
 
 ```
-dists/hermes-desktop-arm64-with-python-packages/hermes-desktop-arm64-offline.tar.gz
+dist/
+├── hermes-desktop-arm64-offline.tar.gz
+└── install-offline-package.sh
 ```
 
 > Step 10 (`npm run pack`) compiles the Electron desktop app — the slowest and most memory-hungry step. 8 GB of RAM or more is recommended.
@@ -195,7 +196,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | `HERMES_BRANCH` | `main` | Default branch name |
 | `HERMES_INSTALL_DIR` | `/opt/hermes-agent` | Build tree during packaging |
 | `HERMES_PYTHON_VERSION` | `3.11` | Python version used for the venv |
-| `OUTPUT_DIR` | `dists/hermes-desktop-arm64-with-python-packages` | Where the bundle is written |
+| `OUTPUT_DIR` | `dist` | Where the bundle is written (gitignored) |
 
 ---
 
@@ -209,9 +210,12 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | Data safety | Relies on Hermes' own permissions | Container isolation; CPU/memory/network limits, read-only mounts |
 | Best for | Single user; document and data scripts run locally | Shared machines; agent-generated code must be contained |
 
-> `hermes-sandbox-python312-*.tar` in the `with-docker-backend` directory is the **sandbox image**; load it separately:
+> `hermes-sandbox-python312-*.tar` shipped with the `with-docker-backend` flavour is the **sandbox image**; the installer does not import it automatically, so load it yourself:
 > `docker load -i hermes-sandbox-python312-20260901v1-arm64.tar`.
 > The image build recipe and tool list are in [hermes-sandbox-offline](https://github.com/zhangxin0323/hermes-sandbox-offline).
+>
+> Both flavours produce a `hermes-desktop-arm64-offline.tar.gz` with the **same name** and share the same `install-offline-package.sh`;
+> only the bundled `hermes-venv` and the presence of the sandbox image differ. Use a different `OUTPUT_DIR` when switching flavours to avoid overwriting.
 
 ---
 
@@ -234,7 +238,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # use the newest commit on main
 | 9 | Pre-download Electron into `electron-cache/` |
 | 10 | `npm run pack` builds the desktop app (output in `apps/desktop/release/`) |
 | 11 | Pre-download Playwright Chromium into `playwright-cache/` |
-| 12 | `tar czvf` the tree into `dists/.../hermes-desktop-arm64-offline.tar.gz` |
+| 12 | Copy the installer, then `tar czvf` the tree into `dist/hermes-desktop-arm64-offline.tar.gz` |
 
 ### Target machine: `install-offline-package.sh`
 
@@ -348,17 +352,15 @@ rm -f ~/.local/share/applications/hermes.desktop
 ```
 hermes-agent-offline-installer/
 ├── make-offline-package.sh              # builder (internet-connected machine)
-├── dists/
-│   ├── hermes-desktop-arm64-with-python-packages/
-│   │   └── install-offline-package.sh   # target-side installer
-│   └── hermes-desktop-arm64-with-docker-backend/
-│       └── install-offline-package.sh
+├── install-offline-package.sh           # target-side installer (copied into dist/ during packaging)
+├── dist/                                # build output: tar.gz + installer (gitignored)
 ├── README.md
 ├── README_EN.md
 └── .gitignore
 ```
 
-> The repository holds scripts and docs only. Source archives, Node/uv runtimes and the offline `tar.gz` are excluded by `.gitignore` and are produced on the build machine.
+> The repository holds scripts and docs only. `dist/`, `dists/`, source archives, Node/uv runtimes and the offline `tar.gz` are excluded by `.gitignore` and are produced on the build machine.
+> The two files under `dist/` are exactly what you publish: `hermes-desktop-arm64-offline.tar.gz` and `install-offline-package.sh`.
 
 ---
 

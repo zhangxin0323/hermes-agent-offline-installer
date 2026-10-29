@@ -69,7 +69,7 @@ usage() {
   HERMES_USE_HEAD=1   跳过 Release/tag，直接取默认分支最新提交
   HERMES_BRANCH       默认分支名，默认 main
   HERMES_INSTALL_DIR  打包时的安装目录，默认 /opt/hermes-agent
-  OUTPUT_DIR          离线包输出目录，默认 dists/hermes-desktop-arm64-with-python-packages
+  OUTPUT_DIR          离线包输出目录，默认 dist（已被 .gitignore 忽略）
 EOF
     exit 0
 }
@@ -349,8 +349,15 @@ mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
 "$INSTALL_DIR/hermes-venv/bin/python" -m playwright install chromium
 
 step "步骤12：打包到输出目录"
-OUT_DIR="${OUTPUT_DIR:-$OFFLINE_DIR/dists/hermes-desktop-arm64-with-python-packages}"
+OUT_DIR="${OUTPUT_DIR:-$OFFLINE_DIR/dist}"
 mkdir -p "$OUT_DIR"
+
+# 安装脚本与产物放在一起，目标机整目录拷走即可
+if [ -f "$OFFLINE_DIR/install-offline-package.sh" ]; then
+    cp -f "$OFFLINE_DIR/install-offline-package.sh" "$OUT_DIR/"
+    info "已复制安装脚本: $OUT_DIR/install-offline-package.sh"
+fi
+
 cd /opt
 sudo tar czvf "$OUT_DIR/hermes-desktop-arm64-offline.tar.gz" hermes-agent/
 
@@ -358,3 +365,4 @@ echo ""
 echo "✓ 打包完成: $OUT_DIR/hermes-desktop-arm64-offline.tar.gz"
 du -sh "$OUT_DIR/hermes-desktop-arm64-offline.tar.gz"
 echo "  源码版本: ${SRC_REF:-未知}"
+echo "  目标机安装: 把 $OUT_DIR 下两个文件拷到同一目录，执行 bash install-offline-package.sh"

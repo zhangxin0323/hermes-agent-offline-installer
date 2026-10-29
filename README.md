@@ -34,12 +34,11 @@
 | `uv-aarch64-unknown-linux-gnu.tar.gz` | 18 MB | uv 独立二进制，用于创建 Python 3.11 环境 |
 | `python-3.12-slim-bookworm-arm64.tar` | 148 MB | 沙箱基础镜像导出文件（Docker 沙箱方案使用） |
 | `latest` | 1 KB | 版本记录文件，记录上次下载的源码版本、来源与校验值 |
-| `dists/hermes-desktop-arm64-with-python-packages/` | 1.55 GB | 离线包 A：Python 依赖齐全，本地直接执行 |
-| `dists/hermes-desktop-arm64-with-docker-backend/` | 4.3 GB | 离线包 B：附 Docker 沙箱镜像，代码在容器内执行 |
-| `install-offline-package.sh` | 2 KB | **目标机**上执行的安装脚本（两个变体内容相同） |
+| `install-offline-package.sh` | 2 KB | **目标机**上执行的安装脚本，打包时自动复制进产物目录 |
+| `dist/` | 1.5–4 GB | 打包产物目录（`tar.gz` + 安装脚本），已被 `.gitignore` 忽略 |
 | `README.md` / `README_EN.md` | — | 中文 / 英文说明 |
 
-> **目标机只需要两个文件**：`hermes-desktop-arm64-offline.tar.gz` + `install-offline-package.sh`。
+> **目标机只需要两个文件**：`hermes-desktop-arm64-offline.tar.gz` + `install-offline-package.sh`，它们都在打包后的 `dist/` 里。
 > 其余文件都留在打包机上，不需要拷贝进内网。
 
 ### latest 文件
@@ -108,10 +107,12 @@ cd hermes-agent-offline-installer
 版本记录: /data/hermes-agent-offline/latest
 ```
 
-完成后产物位于：
+完成后产物位于 `dist/`，脚本会同时把 `install-offline-package.sh` 复制进去：
 
 ```
-dists/hermes-desktop-arm64-with-python-packages/hermes-desktop-arm64-offline.tar.gz
+dist/
+├── hermes-desktop-arm64-offline.tar.gz
+└── install-offline-package.sh
 ```
 
 > 步骤 10（`npm run pack`）会编译 Electron 桌面端，是整个流程中最慢、最吃内存的一步，建议机器内存 ≥ 8 GB。
@@ -198,7 +199,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | `HERMES_BRANCH` | `main` | 默认分支名 |
 | `HERMES_INSTALL_DIR` | `/opt/hermes-agent` | 打包时的构建目录 |
 | `HERMES_PYTHON_VERSION` | `3.11` | 创建 venv 时使用的 Python 版本 |
-| `OUTPUT_DIR` | `dists/hermes-desktop-arm64-with-python-packages` | 离线包输出目录 |
+| `OUTPUT_DIR` | `dist` | 离线包输出目录（已忽略，不入库） |
 
 ---
 
@@ -212,9 +213,12 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | 数据安全性 | 依赖 Hermes 自身权限控制 | 容器隔离，可限制 CPU/内存/网络，目录可只读挂载 |
 | 适用场景 | 单机自用、文档/数据脚本都在本机跑 | 多人共用、需要把 Agent 生成的代码关进沙箱 |
 
-> `with-docker-backend` 目录下的 `hermes-sandbox-python312-*.tar` 是**沙箱镜像**，需要单独导入：
+> `with-docker-backend` 形态附带的 `hermes-sandbox-python312-*.tar` 是**沙箱镜像**，安装脚本不会自动处理，需要单独导入：
 > `docker load -i hermes-sandbox-python312-20260901v1-arm64.tar`。
 > 沙箱镜像的构建方法与工具清单见 [hermes-sandbox-offline](https://github.com/zhangxin0323/hermes-sandbox-offline)。
+>
+> 两种形态产出的 `hermes-desktop-arm64-offline.tar.gz` **同名**，用的也是同一份 `install-offline-package.sh`，
+> 区别只在包内的 `hermes-venv` 与是否附带沙箱镜像。切换形态时建议指定不同的 `OUTPUT_DIR`，避免互相覆盖。
 
 ---
 
@@ -237,7 +241,7 @@ HERMES_USE_HEAD=1 ./make-offline-package.sh    # 直接用 main 分支最新提�
 | 9 | 预下载 Electron 到 `electron-cache/` |
 | 10 | `npm run pack` 构建桌面端（产物在 `apps/desktop/release/`） |
 | 11 | 预下载 Playwright Chromium 到 `playwright-cache/` |
-| 12 | `tar czvf` 打包 `/opt/hermes-agent` 到 `dists/.../hermes-desktop-arm64-offline.tar.gz` |
+| 12 | 复制安装脚本，并 `tar czvf` 打包 `/opt/hermes-agent` 到 `dist/hermes-desktop-arm64-offline.tar.gz` |
 
 ### 目标机：`install-offline-package.sh`
 
@@ -350,18 +354,16 @@ rm -f ~/.local/share/applications/hermes.desktop
 
 ```
 hermes-agent-offline-installer/
-├── make-offline-package.sh              # 打包脚本（联网打包机）
-├── dists/
-│   ├── hermes-desktop-arm64-with-python-packages/
-│   │   └── install-offline-package.sh   # 目标机安装脚本
-│   └── hermes-desktop-arm64-with-docker-backend/
-│       └── install-offline-package.sh
+├── make-offline-package.sh              # 打包脚本（联网打包机执行）
+├── install-offline-package.sh           # 目标机安装脚本（打包时自动复制进 dist/）
+├── dist/                                # 打包产物：tar.gz + 安装脚本（gitignored）
 ├── README.md
 ├── README_EN.md
 └── .gitignore
 ```
 
-> 仓库只存放脚本与文档。源码包、Node/uv 运行时、离线 `tar.gz` 等大文件均被 `.gitignore` 排除，请在打包机上生成。
+> 仓库只存放脚本与文档。`dist/`、`dists/`、源码包、Node/uv 运行时、离线 `tar.gz` 等大文件均被 `.gitignore` 排除，请在打包机上生成。
+> `dist/` 下的两个文件就是发布时的全部内容：`hermes-desktop-arm64-offline.tar.gz` + `install-offline-package.sh`。
 
 ---
 

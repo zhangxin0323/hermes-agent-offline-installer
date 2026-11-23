@@ -713,6 +713,18 @@ done
 # 清掉构建期的 electron-builder 缓存与日志，避免打进离线包
 rm -rf "$INSTALL_DIR/electron-builder-cache" "$INSTALL_DIR/.npm-pack.log" "$INSTALL_DIR/.npm-install.log"
 
+# 生成版本记录文件（随包带走；安装脚本验证时展示）
+# 命名规则: 源码包文件名（去扩展名）+ 打包日期，如 hermes-agent-v0.23.3-20261123
+PKG_VERSION="$(basename "$SRC_ZIP" .zip)-$(date +%Y%m%d)"
+cat > "$INSTALL_DIR/version.txt" <<EOF
+version=$PKG_VERSION
+ref=${SRC_REF:-unknown}
+source=$(basename "$SRC_ZIP")
+built=$(date -Iseconds)
+builder=$(hostname)
+EOF
+info "已写入版本记录: $INSTALL_DIR/version.txt (version=$PKG_VERSION)"
+
 OUT_DIR="${OUTPUT_DIR:-$OFFLINE_DIR/dist}"
 mkdir -p "$OUT_DIR"
 

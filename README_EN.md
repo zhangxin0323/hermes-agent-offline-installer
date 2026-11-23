@@ -6,15 +6,15 @@ Builds a self-contained, fully offline installer for [Hermes Agent](https://gith
 - **`latest` version record** — the source version is no longer hard-coded. The first run resolves upstream's newest version and downloads it; later runs read the `latest` record and **ask whether to download again**, defaulting to reusing the cached archive.
 - **Fully offline on the target** — Node.js, Python 3.14, Electron, and Playwright Chromium are pre-downloaded and shipped inside the bundle; installation never touches the internet.
 - **Desktop app ready to run** — the packaged Electron app is already compiled, so `hermes desktop` starts without a local build.
-- **Two flavours** — `python-packages` (full Python toolchain, executes locally) and `docker-backend` (runs generated code in a Docker sandbox).
-
+- **Two flavours** (Experimental) — `python-packages` (full Python toolchain, executes locally) and `docker-backend` (runs generated code in a Docker sandbox).
+**2026.11.24**: (Experimental) Added root-free packaging and installation scripts make-offline-install-to-user-home.sh and make-offline-install-to-opt.sh, installing to ~/.local/opt/hermes-agent by default.
 | Component | Version |
 | --- | --- |
 | Hermes Agent source | Newest upstream (example: `v0.22.5`; verified here with `v2026.11.24` / 0.23.3) |
 | Node.js | v26.2.0 (linux-arm64) |
 | Python | 3.14 (uv-managed, inside `hermes-venv`) |
-| Electron | 40.10.2 (linux-arm64, cached) |
-| Playwright | Chromium 1243 + headless shell + ffmpeg (cached) |
+| Electron | 44.10.2 (linux-arm64, cached) |
+| Playwright | Chromium 1255 + headless shell + ffmpeg (cached) |
 | uv | Bundled aarch64 standalone binary |
 
 > Background and field notes (in Chinese) by the author:

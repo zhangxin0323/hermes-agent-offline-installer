@@ -729,9 +729,9 @@ OUT_DIR="${OUTPUT_DIR:-$OFFLINE_DIR/dist}"
 mkdir -p "$OUT_DIR"
 
 # 安装脚本与产物放在一起，目标机整目录拷走即可
-if [ -f "$OFFLINE_DIR/install-offline-package.sh" ]; then
-    cp -f "$OFFLINE_DIR/install-offline-package.sh" "$OUT_DIR/"
-    info "已复制安装脚本: $OUT_DIR/install-offline-package.sh"
+if [ -f "$OFFLINE_DIR/install-to-opt.sh" ]; then
+    cp -f "$OFFLINE_DIR/install-to-opt.sh" "$OUT_DIR/"
+    info "已复制安装脚本: $OUT_DIR/install-to-opt.sh"
 fi
 
 cd /opt
@@ -758,4 +758,4 @@ echo ""
 echo "✓ 打包完成: $OUT_DIR/hermes-desktop-arm64-offline.tar.gz"
 du -sh "$OUT_DIR/hermes-desktop-arm64-offline.tar.gz"
 echo "  源码版本: ${SRC_REF:-未知}"
-echo "  目标机安装: 把 $OUT_DIR 下两个文件拷到同一目录，执行 bash install-offline-package.sh"
+echo "  目标机安装: 把 $OUT_DIR 下两个文件拷到同一目录，执行 bash install-to-opt.sh"

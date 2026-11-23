@@ -6,15 +6,17 @@
 - **latest 版本记录**：源码版本不再写死。首次运行自动解析上游最新版本并下载；再次运行时读取 `latest` 记录，**询问是否重新下载**，默认复用已有源码包。
 - **目标机全离线**：Node.js、Python 3.14 环境、Electron、Playwright Chromium 全部预先下载并随包分发，安装过程不访问外网。
 - **开箱即用的桌面端**：包内已包含编译好的 Electron 桌面应用，安装后直接 `hermes desktop` 启动，无需现场构建。
-- **两种发行形态**：`python-packages`（Python 依赖齐全，本地执行）与 `docker-backend`（配合 Docker 沙箱，数据隔离），按需选用。
+- **两种发行形态**（实验性）：`python-packages`（Python 依赖齐全，本地执行）与 `docker-backend`（配合 Docker 沙箱，数据隔离），按需选用。
+
+**2026.11.24**：（实验性）增加免root权限的打包和安装脚本`make-offline-install-to-user-home.sh`、`install-to-user-home.sh`，默认安装到`~/.local/opt/hermes-agent`
 
 | 组件 | 版本 |
 | --- | --- |
 | Hermes Agent 源码 | 自动解析上游最新版（示例：`v0.22.5`；本文档验证版本 `v2026.11.23` / 0.23.3） |
 | Node.js | v26.2.0（linux-arm64） |
 | Python | 3.14（uv 托管，位于 `hermes-venv`；上游 v0.22.x 起强制要求，见常见问题） |
-| Electron | 40.10.2（linux-arm64，已缓存） |
-| Playwright | Chromium 1243 + headless shell + ffmpeg（已缓存） |
+| Electron | 44.10.2（linux-arm64，已缓存） |
+| Playwright | Chromium 1255 + headless shell + ffmpeg（已缓存） |
 | uv | 随包的 aarch64 独立二进制 |
 
 > 背景与实机踩坑过程见作者博文：

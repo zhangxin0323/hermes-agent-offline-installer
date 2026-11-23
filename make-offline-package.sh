@@ -621,39 +621,70 @@ fi
 
 npm_install install -g npm@latest
 
-step "步骤8：安装 npm 依赖"
-npm_install install
-cd apps/desktop
-npm_install install
+step "步骤7.5：安装 pnpm（上游 pm/lock.json 钉死版本）"
+PNPM_PIN="$(node -p "require('$INSTALL_DIR/pm/lock.json').packages.pnpm.version")"
+info "上游锁定 pnpm 版本: $PNPM_PIN"
+npm_install install -g "pnpm@$PNPM_PIN"
 
-step "步骤9：预下载 Electron"
+step "步骤8：安装 pnpm 依赖"
+pnpm_install() {
+    local log rc
+    log="$INSTALL_DIR/.pnpm-install.log"
+    set +e
+    pnpm "$@" 2>&1 | tee "$log"
+    rc=${PIPESTATUS[0]}
+    set -e
+    if [ "$rc" -ne 0 ]; then
+        if grep -qE "std=gnu\+\+20|unrecognized command line option" "$log" 2>/dev/null; then
+            print_gxx_hint
+        fi
+        die "pnpm $* 失败（退出码 $rc），日志: $log"
+    fi
+}
+
+cd "$INSTALL_DIR"
+pnpm_install install --frozen-lockfile
+# apps/desktop 若非 workspace 成员（有自己的 lockfile），再单独装一次
+if [ -f "apps/desktop/pnpm-lock.yaml" ] && ! grep -q "apps/desktop" pnpm-workspace.yaml 2>/dev/null; then
+    cd apps/desktop
+    pnpm_install install --frozen-lockfile
+    cd "$INSTALL_DIR"
+fi
+
+step "步骤9：预下载/自检 Electron"
 mkdir -p "$ELECTRON_CACHE"
 
-# root 下 Chromium 拒绝启动（除非加 --no-sandbox），这里容错：
-# 只要二进制就位就算预下载成功，版本号打印失败不阻断打包。
-ELECTRON_BIN="$INSTALL_DIR/node_modules/electron/dist/electron"
+# electron 在 apps/desktop 子项目里，必须进子目录执行 pnpm exec
+ELECTRON_BIN=""
+for cand in "$INSTALL_DIR/apps/desktop/node_modules/electron/dist/electron" \
+            "$INSTALL_DIR/node_modules/electron/dist/electron"; do
+    if [ -x "$cand" ]; then ELECTRON_BIN="$cand"; break; fi
+done
+
 ELECTRON_ARGS=(--version)
 [ "$(id -u)" -eq 0 ] && ELECTRON_ARGS=(--no-sandbox --version)
 
-if ! npx electron "${ELECTRON_ARGS[@]}"; then
+cd "$INSTALL_DIR/apps/desktop"
+if ! pnpm exec electron "${ELECTRON_ARGS[@]}"; then
     warn "Electron 自检失败（root 沙箱限制或缺图形库都可能导致，属常见情况）"
-    if [ -x "$ELECTRON_BIN" ]; then
+    if [ -n "$ELECTRON_BIN" ] && [ -x "$ELECTRON_BIN" ]; then
         info "二进制已就位，继续打包: $ELECTRON_BIN"
     else
         die "Electron 未下载成功，请检查网络，或设置 ELECTRON_MIRROR 后重跑"
     fi
 fi
+cd "$INSTALL_DIR"
 
 step "步骤10：构建桌面应用"
 cd "$INSTALL_DIR/apps/desktop"
 PACK_LOG="$INSTALL_DIR/.npm-pack.log"
 set +e
-npm run pack 2>&1 | tee "$PACK_LOG"
+pnpm run pack 2>&1 | tee "$PACK_LOG"
 PACK_RC=${PIPESTATUS[0]}
 set -e
 if [ "$PACK_RC" -ne 0 ]; then
     echo ""
-    if grep -qE 'fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|socket hang up' "$PACK_LOG" 2>/dev/null; then
+    if grep -qE 'fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|socket hang up|ERR_PNPM_FETCH' "$PACK_LOG" 2>/dev/null; then
         warn "electron-builder 下载 Electron / 打包工具失败，通常是 GitHub 直连不通。"
         warn "解决办法（任选其一）："
         warn "  1) 加 --cn-mirror 重跑本脚本；"
@@ -661,7 +692,7 @@ if [ "$PACK_RC" -ne 0 ]; then
         warn "     export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/"
         warn "     export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/"
     fi
-    die "npm run pack 失败（退出码 $PACK_RC），日志: $PACK_LOG"
+    die "pnpm run pack 失败（退出码 $PACK_RC），日志: $PACK_LOG"
 fi
 
 step "步骤11：预下载 Playwright 浏览器"

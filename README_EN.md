@@ -10,7 +10,7 @@ Builds a self-contained, fully offline installer for [Hermes Agent](https://gith
 
 | Component | Version |
 | --- | --- |
-| Hermes Agent source | Newest upstream (example: `v0.22.5`; verified here with `v2026.9.14` / 0.21.3) |
+| Hermes Agent source | Newest upstream (example: `v0.22.5`; verified here with `v2026.11.24` / 0.23.3) |
 | Node.js | v26.2.0 (linux-arm64) |
 | Python | 3.14 (uv-managed, inside `hermes-venv`) |
 | Electron | 40.10.2 (linux-arm64, cached) |

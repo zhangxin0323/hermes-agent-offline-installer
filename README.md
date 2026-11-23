@@ -10,7 +10,7 @@
 
 | 组件 | 版本 |
 | --- | --- |
-| Hermes Agent 源码 | 自动解析上游最新版（示例：`v0.22.5`；本文档验证版本 `v2026.9.14` / 0.21.3） |
+| Hermes Agent 源码 | 自动解析上游最新版（示例：`v0.22.5`；本文档验证版本 `v2026.11.23` / 0.23.3） |
 | Node.js | v26.2.0（linux-arm64） |
 | Python | 3.14（uv 托管，位于 `hermes-venv`；上游 v0.22.x 起强制要求，见常见问题） |
 | Electron | 40.10.2（linux-arm64，已缓存） |
@@ -29,12 +29,11 @@
 | 文件 | 大小 | 说明 |
 | --- | --- | --- |
 | `make-offline-package.sh` | 13 KB | **打包机**上执行的打包脚本：解析/下载源码 → 装依赖 → 构建 → 出包 |
-| `hermes-agent-<版本>.zip` | 75–100 MB | 上游源码包（自动下载并缓存，不随包分发） |
+| `hermes-agent-<版本>.zip` | 75–150 MB | 上游源码包（自动下载并缓存，不随包分发） |
 | `node-v26.2.0-linux-arm64.tar.xz` | 31 MB | Node.js 官方预编译运行时，打包时解压进离线包 |
 | `uv-aarch64-unknown-linux-gnu.tar.gz` | 18 MB | uv 独立二进制，用于创建 Python 3.14 环境 |
-| `python-3.12-slim-bookworm-arm64.tar` | 148 MB | 沙箱基础镜像导出文件（Docker 沙箱方案使用） |
 | `latest` | 1 KB | 版本记录文件，记录上次下载的源码版本、来源与校验值 |
-| `install-offline-package.sh` | 2 KB | **目标机**上执行的安装脚本，打包时自动复制进产物目录 |
+| `install-offline-package.sh` | 13 KB | **目标机**上执行的安装脚本，打包时自动复制进产物目录 |
 | `dist/` | 1.5–4 GB | 打包产物目录（`tar.gz` + 安装脚本），已被 `.gitignore` 忽略 |
 | `README.md` / `README_EN.md` | — | 中文 / 英文说明 |
 
@@ -79,7 +78,6 @@ downloaded=2026-10-29T13:35:51+08:00
   `git libnss3 libxkbcommon0 libgtk-3-0 libgbm1 libasound2 ripgrep ffmpeg`。
 - 磁盘：安装目录 `/opt/hermes-agent` 约占 4 GB，解压期间建议预留 6 GB。
 - 图形环境：仅使用 `hermes --tui` 时可不装桌面；使用 `hermes desktop` 时需要可用的 X11/Wayland 桌面。
-- 若使用 `docker-backend` 变体，另需安装 Docker（沙箱容器运行在目标机本地）。
 
 ---
 
@@ -102,7 +100,7 @@ cd hermes-agent-offline-installer
 > **国内打包机务必加 `--cn-mirror`。** 实测同一份 arm64 wheel：走默认的 `files.pythonhosted.org` 只有 **44 KB/s**，
 > 换成阿里云镜像后 **1.4 MB/s**（约 30 倍）。`.[all,dev]` 要拉几百 MB，不加镜像时看起来就像"卡死在 pydantic"。
 
-脚本会依次执行 12 个步骤（详见[第六节](#六脚本做了什么)）。首次运行没有 `latest`，会直接解析上游最新版本并下载源码：
+脚本会依次执行 10余个步骤（详见[第六节](#六脚本做了什么)）。首次运行没有 `latest`，会直接解析上游最新版本并下载源码：
 
 ```
 === 步骤0.5：准备 Hermes Agent 源码 ===
